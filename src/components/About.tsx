@@ -5,11 +5,11 @@ const About = () => {
   return (
     <section id="about" className="py-20 bg-muted/20">
       <div className="container mx-auto px-4">
-        <div className="text-center mb-16">
-          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
+        <div className="text-center mb-16 animate-fade-in">
+          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4 animate-slide-up">
             About This Project
           </h2>
-          <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
+          <p className="text-xl text-muted-foreground max-w-3xl mx-auto animate-slide-up" style={{animationDelay: '0.2s'}}>
             A final year computer science project developed at IMS Engineering College, 
             Ghaziabad, aimed at revolutionizing agricultural practices through AI technology.
           </p>
@@ -17,9 +17,9 @@ const About = () => {
 
         <div className="max-w-6xl mx-auto">
           <div className="grid md:grid-cols-3 gap-8 mb-12">
-            <Card className="text-center border-2 hover:border-primary/30 transition-colors">
+            <Card className="text-center border-2 hover:border-primary/30 transition-all duration-300 hover:shadow-xl hover:scale-105 animate-scale-in" style={{animationDelay: '0.4s'}}>
               <CardHeader>
-                <GraduationCap className="h-12 w-12 text-primary mx-auto mb-4" />
+                <GraduationCap className="h-12 w-12 text-primary mx-auto mb-4 animate-float" />
                 <CardTitle>Academic Excellence</CardTitle>
               </CardHeader>
               <CardContent>
@@ -30,9 +30,9 @@ const About = () => {
               </CardContent>
             </Card>
 
-            <Card className="text-center border-2 hover:border-primary/30 transition-colors">
+            <Card className="text-center border-2 hover:border-primary/30 transition-all duration-300 hover:shadow-xl hover:scale-105 animate-scale-in" style={{animationDelay: '0.6s'}}>
               <CardHeader>
-                <Users className="h-12 w-12 text-primary mx-auto mb-4" />
+                <Users className="h-12 w-12 text-primary mx-auto mb-4 animate-float" style={{animationDelay: '0.5s'}} />
                 <CardTitle>Team Collaboration</CardTitle>
               </CardHeader>
               <CardContent>
@@ -43,9 +43,9 @@ const About = () => {
               </CardContent>
             </Card>
 
-            <Card className="text-center border-2 hover:border-primary/30 transition-colors">
+            <Card className="text-center border-2 hover:border-primary/30 transition-all duration-300 hover:shadow-xl hover:scale-105 animate-scale-in" style={{animationDelay: '0.8s'}}>
               <CardHeader>
-                <Target className="h-12 w-12 text-primary mx-auto mb-4" />
+                <Target className="h-12 w-12 text-primary mx-auto mb-4 animate-float" style={{animationDelay: '1s'}} />
                 <CardTitle>Real Impact</CardTitle>
               </CardHeader>
               <CardContent>
@@ -57,7 +57,7 @@ const About = () => {
             </Card>
           </div>
 
-          <Card className="border-2">
+          <Card className="border-2 hover:shadow-xl transition-all duration-300 animate-fade-in" style={{animationDelay: '1s'}}>
             <CardHeader>
               <CardTitle className="text-2xl text-center">Project Objectives</CardTitle>
             </CardHeader>
