@@ -1,7 +1,10 @@
 import { Sprout, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useNavigate } from "react-router-dom";
 
 const Header = () => {
+  const navigate = useNavigate();
+
   return (
     <header className="w-full bg-background/80 backdrop-blur-md border-b border-border sticky top-0 z-50 animate-fade-in">
       <div className="container mx-auto px-4 py-4 flex items-center justify-between">
@@ -11,10 +14,37 @@ const Header = () => {
         </div>
         
         <nav className="hidden md:flex items-center space-x-6 animate-slide-up">
-          <a href="#features" className="text-muted-foreground hover:text-primary transition-all duration-300 hover:scale-105">Features</a>
-          <a href="#how-it-works" className="text-muted-foreground hover:text-primary transition-all duration-300 hover:scale-105">How It Works</a>
-          <a href="#about" className="text-muted-foreground hover:text-primary transition-all duration-300 hover:scale-105">About</a>
-          <Button variant="default" className="hover:scale-105 transition-transform duration-300">Get Started</Button>
+          <button 
+            onClick={() => navigate("/crop-recommendation")}
+            className="text-muted-foreground hover:text-primary transition-all duration-300 hover:scale-105"
+          >
+            Crop Recommendation
+          </button>
+          <button 
+            onClick={() => navigate("/crop-monitoring")}
+            className="text-muted-foreground hover:text-primary transition-all duration-300 hover:scale-105"
+          >
+            Crop Monitoring
+          </button>
+          <button 
+            onClick={() => navigate("/government-updates")}
+            className="text-muted-foreground hover:text-primary transition-all duration-300 hover:scale-105"
+          >
+            Gov Updates
+          </button>
+          <button 
+            onClick={() => navigate("/sowing-calendar")}
+            className="text-muted-foreground hover:text-primary transition-all duration-300 hover:scale-105"
+          >
+            Sowing Calendar
+          </button>
+          <Button 
+            variant="default" 
+            className="hover:scale-105 transition-transform duration-300"
+            onClick={() => navigate("/crop-recommendation")}
+          >
+            Get Started
+          </Button>
         </nav>
 
         <Button variant="ghost" size="icon" className="md:hidden">

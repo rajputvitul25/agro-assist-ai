@@ -1,9 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ArrowRight, Smartphone, Cloud, Leaf } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import heroImage from "@/assets/hero-farm.jpg";
 
 const Hero = () => {
+  const navigate = useNavigate();
+
   return (
     <section className="relative py-20 overflow-hidden">
       {/* Background Image */}
@@ -28,12 +31,21 @@ const Hero = () => {
               disease detection, and weather-based sowing advice. Your complete agricultural advisory platform.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center animate-scale-in" style={{animationDelay: '0.4s'}}>
-              <Button size="lg" className="text-lg px-8 hover:scale-105 transition-all duration-300 shadow-lg hover:shadow-xl">
+              <Button 
+                size="lg" 
+                className="text-lg px-8 hover:scale-105 transition-all duration-300 shadow-lg hover:shadow-xl"
+                onClick={() => navigate("/crop-recommendation")}
+              >
                 Get Started Today
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
-              <Button variant="outline" size="lg" className="text-lg px-8 hover:scale-105 transition-all duration-300 shadow-lg hover:shadow-xl">
-                Learn More
+              <Button 
+                variant="outline" 
+                size="lg" 
+                className="text-lg px-8 hover:scale-105 transition-all duration-300 shadow-lg hover:shadow-xl"
+                onClick={() => navigate("/crop-monitoring")}
+              >
+                Try AI Analysis
               </Button>
             </div>
           </div>
