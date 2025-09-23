@@ -42,8 +42,9 @@ const SowingCalendar = () => {
 
   const seasons = ["Kharif", "Rabi", "Summer"];
 
-  // Mock crop calendar data
+  // Comprehensive crop calendar data for all states
   const mockCalendarData: CropCalendar[] = [
+    // Punjab Crops
     {
       crop: "Rice",
       variety: "Basmati",
@@ -98,10 +99,10 @@ const SowingCalendar = () => {
     {
       crop: "Maize",
       variety: "Hybrid",
-      sowingMonth: "June-July",
-      harvestMonth: "September-October",
+      sowingMonth: "February-March",
+      harvestMonth: "May-June",
       duration: "90-110 days",
-      season: "Kharif",
+      season: "Summer",
       region: "Punjab",
       temperatureRange: "20-30°C",
       rainfallRequirement: "500-700mm",
@@ -109,26 +110,11 @@ const SowingCalendar = () => {
       tips: [
         "Plant 2-3 seeds per hill",
         "Apply balanced fertilizer",
-        "Control fall armyworm"
+        "Ensure adequate irrigation"
       ]
     },
-    {
-      crop: "Mustard",
-      variety: "Pusa Bold",
-      sowingMonth: "October-November",
-      harvestMonth: "February-March",
-      duration: "120-140 days",
-      season: "Rabi",
-      region: "Punjab",
-      temperatureRange: "10-25°C",
-      rainfallRequirement: "300-400mm",
-      soilType: "Sandy loam",
-      tips: [
-        "Sow on raised beds",
-        "Use rhizobium culture",
-        "Harvest at physiological maturity"
-      ]
-    },
+
+    // Uttar Pradesh Crops
     {
       crop: "Sugarcane",
       variety: "Co-238",
@@ -136,7 +122,7 @@ const SowingCalendar = () => {
       harvestMonth: "December-February",
       duration: "10-12 months",
       season: "Summer",
-      region: "Punjab",
+      region: "Uttar Pradesh",
       temperatureRange: "20-35°C",
       rainfallRequirement: "1200-1500mm",
       soilType: "Deep fertile soil",
@@ -144,6 +130,479 @@ const SowingCalendar = () => {
         "Plant 3-bud setts",
         "Maintain adequate moisture",
         "Apply organic manure"
+      ]
+    },
+    {
+      crop: "Wheat",
+      variety: "PBW-343",
+      sowingMonth: "November-December",
+      harvestMonth: "April-May",
+      duration: "120-140 days",
+      season: "Rabi",
+      region: "Uttar Pradesh",
+      temperatureRange: "15-25°C",
+      rainfallRequirement: "400-600mm",
+      soilType: "Sandy loam",
+      tips: [
+        "Timely sowing is crucial",
+        "Use certified seeds",
+        "Apply balanced fertilization"
+      ]
+    },
+    {
+      crop: "Rice",
+      variety: "Saryu-52",
+      sowingMonth: "June-July",
+      harvestMonth: "October-November",
+      duration: "120-135 days",
+      season: "Kharif",
+      region: "Uttar Pradesh",
+      temperatureRange: "20-35°C",
+      rainfallRequirement: "1000-1200mm",
+      soilType: "Clay loam",
+      tips: [
+        "Transplant healthy seedlings",
+        "Maintain water level",
+        "Regular weeding required"
+      ]
+    },
+    {
+      crop: "Fodder Maize",
+      variety: "African Tall",
+      sowingMonth: "March-April",
+      harvestMonth: "June-July",
+      duration: "70-90 days",
+      season: "Summer",
+      region: "Uttar Pradesh",
+      temperatureRange: "25-35°C",
+      rainfallRequirement: "400-500mm",
+      soilType: "Well-drained loam",
+      tips: [
+        "Quick growing variety",
+        "High yield fodder crop",
+        "Regular irrigation needed"
+      ]
+    },
+
+    // Bihar Crops
+    {
+      crop: "Rice",
+      variety: "Swarna",
+      sowingMonth: "June-July",
+      harvestMonth: "October-November",
+      duration: "135-140 days",
+      season: "Kharif",
+      region: "Bihar",
+      temperatureRange: "20-35°C",
+      rainfallRequirement: "1000-1200mm",
+      soilType: "Clay",
+      tips: [
+        "Flood resistant variety",
+        "Suitable for lowland areas",
+        "Good for Bihar conditions"
+      ]
+    },
+    {
+      crop: "Wheat",
+      variety: "HD-2733",
+      sowingMonth: "November-December",
+      harvestMonth: "April-May",
+      duration: "120-125 days",
+      season: "Rabi",
+      region: "Bihar",
+      temperatureRange: "15-25°C",
+      rainfallRequirement: "400-500mm",
+      soilType: "Sandy loam",
+      tips: [
+        "Heat tolerant variety",
+        "Good grain quality",
+        "Disease resistant"
+      ]
+    },
+    {
+      crop: "Maize",
+      variety: "Prakash",
+      sowingMonth: "March-April",
+      harvestMonth: "June-July",
+      duration: "90-100 days",
+      season: "Summer",
+      region: "Bihar",
+      temperatureRange: "25-35°C",
+      rainfallRequirement: "400-600mm",
+      soilType: "Well-drained",
+      tips: [
+        "Summer hybrid variety",
+        "Good for Bihar climate",
+        "Regular irrigation required"
+      ]
+    },
+
+    // Maharashtra Crops
+    {
+      crop: "Cotton",
+      variety: "Bt Cotton",
+      sowingMonth: "June-July",
+      harvestMonth: "December-January",
+      duration: "180-200 days",
+      season: "Kharif",
+      region: "Maharashtra",
+      temperatureRange: "25-35°C",
+      rainfallRequirement: "600-800mm",
+      soilType: "Black cotton soil",
+      tips: [
+        "Major cash crop of Maharashtra",
+        "Bollworm resistant variety",
+        "Spacing: 90cm x 60cm"
+      ]
+    },
+    {
+      crop: "Sugarcane",
+      variety: "Co-86032",
+      sowingMonth: "February-March",
+      harvestMonth: "December-February",
+      duration: "10-12 months",
+      season: "Summer",
+      region: "Maharashtra",
+      temperatureRange: "20-35°C",
+      rainfallRequirement: "1200-1500mm",
+      soilType: "Deep black soil",
+      tips: [
+        "High sugar content variety",
+        "Drought tolerant",
+        "Ratoon crop possible"
+      ]
+    },
+    {
+      crop: "Jowar",
+      variety: "CSH-16",
+      sowingMonth: "June-July",
+      harvestMonth: "October-November",
+      duration: "110-120 days",
+      season: "Kharif",
+      region: "Maharashtra",
+      temperatureRange: "25-35°C",
+      rainfallRequirement: "400-600mm",
+      soilType: "Black soil",
+      tips: [
+        "Drought resistant crop",
+        "Good for rainfed areas",
+        "Nutritious grain crop"
+      ]
+    },
+    {
+      crop: "Wheat",
+      variety: "NIAW-301",
+      sowingMonth: "November-December",
+      harvestMonth: "March-April",
+      duration: "110-120 days",
+      season: "Rabi",
+      region: "Maharashtra",
+      temperatureRange: "15-25°C",
+      rainfallRequirement: "300-400mm",
+      soilType: "Black soil",
+      tips: [
+        "Durum wheat variety",
+        "Good for Maharashtra",
+        "Heat tolerant"
+      ]
+    },
+
+    // Gujarat Crops
+    {
+      crop: "Cotton",
+      variety: "Shankar-6",
+      sowingMonth: "June-July",
+      harvestMonth: "December-January",
+      duration: "180-200 days",
+      season: "Kharif",
+      region: "Gujarat",
+      temperatureRange: "25-35°C",
+      rainfallRequirement: "600-800mm",
+      soilType: "Black cotton soil",
+      tips: [
+        "High yielding variety",
+        "Good fiber quality",
+        "Pest management crucial"
+      ]
+    },
+    {
+      crop: "Groundnut",
+      variety: "GG-20",
+      sowingMonth: "June-July",
+      harvestMonth: "October-November",
+      duration: "110-120 days",
+      season: "Kharif",
+      region: "Gujarat",
+      temperatureRange: "25-30°C",
+      rainfallRequirement: "500-700mm",
+      soilType: "Sandy loam",
+      tips: [
+        "Major oilseed crop",
+        "Calcium requirement high",
+        "Harvest at proper maturity"
+      ]
+    },
+    {
+      crop: "Wheat",
+      variety: "GW-496",
+      sowingMonth: "November-December",
+      harvestMonth: "March-April",
+      duration: "110-115 days",
+      season: "Rabi",
+      region: "Gujarat",
+      temperatureRange: "15-25°C",
+      rainfallRequirement: "300-400mm",
+      soilType: "Sandy loam",
+      tips: [
+        "High yielding variety",
+        "Good grain quality",
+        "Suitable for Gujarat"
+      ]
+    },
+    {
+      crop: "Castor",
+      variety: "GCH-7",
+      sowingMonth: "March-April",
+      harvestMonth: "August-September",
+      duration: "150-180 days",
+      season: "Summer",
+      region: "Gujarat",
+      temperatureRange: "25-35°C",
+      rainfallRequirement: "400-600mm",
+      soilType: "Well-drained",
+      tips: [
+        "Commercial oil crop",
+        "Drought tolerant",
+        "Multiple harvests possible"
+      ]
+    },
+
+    // Rajasthan Crops
+    {
+      crop: "Bajra",
+      variety: "HHB-67",
+      sowingMonth: "June-July",
+      harvestMonth: "September-October",
+      duration: "75-90 days",
+      season: "Kharif",
+      region: "Rajasthan",
+      temperatureRange: "25-35°C",
+      rainfallRequirement: "300-500mm",
+      soilType: "Sandy soil",
+      tips: [
+        "Drought resistant crop",
+        "Good for arid regions",
+        "Nutritious millet crop"
+      ]
+    },
+    {
+      crop: "Mustard",
+      variety: "RH-30",
+      sowingMonth: "October-November",
+      harvestMonth: "February-March",
+      duration: "120-140 days",
+      season: "Rabi",
+      region: "Rajasthan",
+      temperatureRange: "10-25°C",
+      rainfallRequirement: "300-400mm",
+      soilType: "Sandy loam",
+      tips: [
+        "Major oilseed of Rajasthan",
+        "Cold tolerant variety",
+        "Good oil content"
+      ]
+    },
+    {
+      crop: "Guar",
+      variety: "RGC-1038",
+      sowingMonth: "July-August",
+      harvestMonth: "October-November",
+      duration: "90-120 days",
+      season: "Kharif",
+      region: "Rajasthan",
+      temperatureRange: "25-35°C",
+      rainfallRequirement: "300-500mm",
+      soilType: "Sandy soil",
+      tips: [
+        "Industrial crop",
+        "Drought tolerant",
+        "Good market demand"
+      ]
+    },
+    {
+      crop: "Cumin",
+      variety: "GC-4",
+      sowingMonth: "November-December",
+      harvestMonth: "March-April",
+      duration: "110-130 days",
+      season: "Rabi",
+      region: "Rajasthan",
+      temperatureRange: "15-25°C",
+      rainfallRequirement: "200-300mm",
+      soilType: "Sandy loam",
+      tips: [
+        "Spice crop",
+        "High value crop",
+        "Requires cool weather"
+      ]
+    },
+
+    // Tamil Nadu Crops
+    {
+      crop: "Rice",
+      variety: "ADT-43",
+      sowingMonth: "June-July",
+      harvestMonth: "September-October",
+      duration: "110-115 days",
+      season: "Kharif",
+      region: "Tamil Nadu",
+      temperatureRange: "25-35°C",
+      rainfallRequirement: "1000-1200mm",
+      soilType: "Clay",
+      tips: [
+        "Short duration variety",
+        "Good for Tamil Nadu",
+        "High yielding"
+      ]
+    },
+    {
+      crop: "Sugarcane",
+      variety: "Co-86032",
+      sowingMonth: "January-February",
+      harvestMonth: "December-January",
+      duration: "10-12 months",
+      season: "Summer",
+      region: "Tamil Nadu",
+      temperatureRange: "20-35°C",
+      rainfallRequirement: "1200-1500mm",
+      soilType: "Red soil",
+      tips: [
+        "High sugar content",
+        "Suitable for Tamil Nadu",
+        "Good ratoon potential"
+      ]
+    },
+    {
+      crop: "Cotton",
+      variety: "MCU-5",
+      sowingMonth: "June-July",
+      harvestMonth: "December-January",
+      duration: "180-200 days",
+      season: "Kharif",
+      region: "Tamil Nadu",
+      temperatureRange: "25-35°C",
+      rainfallRequirement: "600-800mm",
+      soilType: "Black soil",
+      tips: [
+        "Medium staple cotton",
+        "Good for Tamil Nadu",
+        "Disease resistant"
+      ]
+    },
+
+    // Karnataka Crops
+    {
+      crop: "Ragi",
+      variety: "MR-1",
+      sowingMonth: "June-July",
+      harvestMonth: "October-November",
+      duration: "120-135 days",
+      season: "Kharif",
+      region: "Karnataka",
+      temperatureRange: "20-30°C",
+      rainfallRequirement: "500-750mm",
+      soilType: "Red soil",
+      tips: [
+        "Nutritious millet crop",
+        "Drought tolerant",
+        "Good for rainfed areas"
+      ]
+    },
+    {
+      crop: "Sunflower",
+      variety: "KBSH-1",
+      sowingMonth: "February-March",
+      harvestMonth: "May-June",
+      duration: "90-110 days",
+      season: "Summer",
+      region: "Karnataka",
+      temperatureRange: "25-30°C",
+      rainfallRequirement: "400-600mm",
+      soilType: "Well-drained",
+      tips: [
+        "Oilseed crop",
+        "Short duration",
+        "Good oil content"
+      ]
+    },
+    {
+      crop: "Jowar",
+      variety: "CSH-16",
+      sowingMonth: "June-July",
+      harvestMonth: "October-November",
+      duration: "110-120 days",
+      season: "Kharif",
+      region: "Karnataka",
+      temperatureRange: "25-35°C",
+      rainfallRequirement: "400-600mm",
+      soilType: "Black soil",
+      tips: [
+        "Drought resistant",
+        "Good fodder value",
+        "Suitable for dryland"
+      ]
+    },
+
+    // West Bengal Crops
+    {
+      crop: "Rice",
+      variety: "IET-4786",
+      sowingMonth: "June-July",
+      harvestMonth: "November-December",
+      duration: "135-140 days",
+      season: "Kharif",
+      region: "West Bengal",
+      temperatureRange: "25-35°C",
+      rainfallRequirement: "1200-1500mm",
+      soilType: "Clay",
+      tips: [
+        "High yielding variety",
+        "Flood tolerant",
+        "Good grain quality"
+      ]
+    },
+    {
+      crop: "Jute",
+      variety: "JRO-204",
+      sowingMonth: "March-April",
+      harvestMonth: "July-August",
+      duration: "120-150 days",
+      season: "Summer",
+      region: "West Bengal",
+      temperatureRange: "25-35°C",
+      rainfallRequirement: "1000-1200mm",
+      soilType: "Clay loam",
+      tips: [
+        "Fiber crop",
+        "High humidity requirement",
+        "Needs standing water"
+      ]
+    },
+    {
+      crop: "Potato",
+      variety: "Kufri Jyoti",
+      sowingMonth: "November-December",
+      harvestMonth: "February-March",
+      duration: "70-90 days",
+      season: "Rabi",
+      region: "West Bengal",
+      temperatureRange: "15-25°C",
+      rainfallRequirement: "300-400mm",
+      soilType: "Sandy loam",
+      tips: [
+        "Short duration variety",
+        "Good for West Bengal",
+        "High yielding"
       ]
     }
   ];
