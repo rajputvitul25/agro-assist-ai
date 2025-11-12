@@ -1,9 +1,10 @@
 import Header from "@/components/Header";
 import Hero from "@/components/Hero";
 import Features from "@/components/Features";
-import CropRecommendation from "@/components/CropRecommendation";
-import CropMonitoring from "@/components/CropMonitoring";
-import GovernmentUpdates from "@/components/GovernmentUpdates";
+import HowItWorks from "@/components/HowItWorks";
+import TechStack from "@/components/TechStack";
+import About from "@/components/About";
+import Footer from "@/components/Footer";
 
 const Index = () => {
   return (
@@ -11,9 +12,10 @@ const Index = () => {
       <Header />
       <Hero />
       <Features />
-      <CropRecommendation />
-      <CropMonitoring />
-      <GovernmentUpdates />
+      <HowItWorks />
+      <TechStack />
+      <About />
+      <Footer />
     </div>
   );
 };

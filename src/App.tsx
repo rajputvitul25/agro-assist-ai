@@ -8,6 +8,10 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
+import CropRecommendation from "./pages/CropRecommendation";
+import CropMonitoring from "./pages/CropMonitoring";
+import GovernmentUpdates from "./pages/GovernmentUpdates";
+import SowingCalendar from "./pages/SowingCalendar";
 
 const queryClient = new QueryClient();
 
@@ -25,6 +29,38 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <Index />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/crop-recommendation"
+              element={
+                <ProtectedRoute>
+                  <CropRecommendation />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/crop-monitoring"
+              element={
+                <ProtectedRoute>
+                  <CropMonitoring />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/government-updates"
+              element={
+                <ProtectedRoute>
+                  <GovernmentUpdates />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/sowing-calendar"
+              element={
+                <ProtectedRoute>
+                  <SowingCalendar />
                 </ProtectedRoute>
               }
             />
