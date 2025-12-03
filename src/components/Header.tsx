@@ -10,8 +10,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 const Header = () => {
   const { user, isAuthenticated, logout } = useAuth();
@@ -31,6 +32,13 @@ const Header = () => {
       .toUpperCase()
       .slice(0, 2);
   };
+  const navItems = [
+    { label: "Crop Recommendation", to: "/crop-recommendation" },
+    { label: "Crop Monitoring", to: "/crop-monitoring" },
+    { label: "Gov Updates", to: "/government-updates" },
+    { label: "Sowing Calendar", to: "/sowing-calendar" },
+  ];
+
   return (
     <header className="w-full bg-background/80 backdrop-blur-md border-b border-border sticky top-0 z-50 animate-fade-in">
       <div className="container mx-auto px-4 py-4 flex items-center justify-between">
@@ -39,31 +47,21 @@ const Header = () => {
           <span className="text-xl font-bold text-foreground">Smart Farmer's Assistant</span>
         </div>
         
-        <nav className="hidden md:flex items-center space-x-6 animate-slide-up">
-          <button 
-            onClick={() => navigate("/crop-recommendation")}
-            className="text-muted-foreground hover:text-primary transition-all duration-300 hover:scale-105"
-          >
-            Crop Recommendation
-          </button>
-          <button 
-            onClick={() => navigate("/crop-monitoring")}
-            className="text-muted-foreground hover:text-primary transition-all duration-300 hover:scale-105"
-          >
-            Crop Monitoring
-          </button>
-          <button 
-            onClick={() => navigate("/government-updates")}
-            className="text-muted-foreground hover:text-primary transition-all duration-300 hover:scale-105"
-          >
-            Gov Updates
-          </button>
-          <button 
-            onClick={() => navigate("/sowing-calendar")}
-            className="text-muted-foreground hover:text-primary transition-all duration-300 hover:scale-105"
-          >
-            Sowing Calendar
-          </button>
+        <nav className="hidden md:flex items-center space-x-6 animate-slide-up pointer-events-auto">
+          {navItems.map(({ label, to }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) =>
+                cn(
+                  "text-muted-foreground transition-all duration-300 hover:text-primary hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-md px-1 py-0.5",
+                  isActive && "text-primary font-semibold"
+                )
+              }
+            >
+              {label}
+            </NavLink>
+          ))}
         </nav>
 
         <div className="flex items-center space-x-4">
