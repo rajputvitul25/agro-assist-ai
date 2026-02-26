@@ -8,6 +8,15 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    proxy: {
+      // Proxy /tlm -> https://www.useblackbox.io/tlm to avoid CORS in dev
+      '/tlm': {
+        target: 'https://www.useblackbox.io',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/tlm/, '/tlm')
+      }
+    }
   },
   plugins: [
     react(),

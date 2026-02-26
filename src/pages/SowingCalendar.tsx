@@ -29,18 +29,52 @@ interface WeatherInfo {
 
 const SowingCalendar = () => {
   const navigate = useNavigate();
-  const [selectedState, setSelectedState] = useState("Punjab");
-  const [selectedSeason, setSelectedSeason] = useState("Kharif");
+  const [selectedState, setSelectedState] = useState("All States");
+  const [selectedSeason, setSelectedSeason] = useState("All Seasons");
   const [cropCalendar, setCropCalendar] = useState<CropCalendar[]>([]);
   const [weatherInfo, setWeatherInfo] = useState<WeatherInfo | null>(null);
 
   const states = [
-    "Punjab", "Haryana", "Uttar Pradesh", "Bihar", "West Bengal", 
-    "Madhya Pradesh", "Rajasthan", "Gujarat", "Maharashtra", "Karnataka",
-    "Andhra Pradesh", "Tamil Nadu", "Kerala", "Assam"
+    "All States",
+    "Andhra Pradesh",
+    "Arunachal Pradesh",
+    "Assam",
+    "Bihar",
+    "Chhattisgarh",
+    "Goa",
+    "Gujarat",
+    "Haryana",
+    "Himachal Pradesh",
+    "Jharkhand",
+    "Karnataka",
+    "Kerala",
+    "Madhya Pradesh",
+    "Maharashtra",
+    "Manipur",
+    "Meghalaya",
+    "Mizoram",
+    "Nagaland",
+    "Odisha",
+    "Punjab",
+    "Rajasthan",
+    "Sikkim",
+    "Tamil Nadu",
+    "Telangana",
+    "Tripura",
+    "Uttar Pradesh",
+    "Uttarakhand",
+    "West Bengal",
+    "Andaman and Nicobar Islands",
+    "Chandigarh",
+    "Dadra and Nagar Haveli and Daman and Diu",
+    "Delhi",
+    "Jammu and Kashmir",
+    "Ladakh",
+    "Lakshadweep",
+    "Puducherry"
   ];
 
-  const seasons = ["Kharif", "Rabi", "Summer"];
+  const seasons = ["All Seasons", "Kharif", "Rabi", "Summer"];
 
   // Comprehensive crop calendar data for all states
   const mockCalendarData: CropCalendar[] = [
@@ -616,13 +650,90 @@ const SowingCalendar = () => {
   };
 
   useEffect(() => {
-    // Filter calendar data based on selections
-    const filtered = mockCalendarData.filter(
-      item => item.region === selectedState && item.season === selectedSeason
-    );
+    // Filter calendar data based on selections with fallbacks
+    let filtered = mockCalendarData.filter(item => {
+      const matchState = selectedState === "All States" ? true : item.region === selectedState;
+      const matchSeason = selectedSeason === "All Seasons" ? true : item.season === selectedSeason;
+      return matchState && matchSeason;
+    });
+
+    // If no region-specific data, show national suggestions for the selected season
+    if (filtered.length === 0) {
+      filtered = mockCalendarData.filter(item => selectedSeason === "All Seasons" ? true : item.season === selectedSeason)
+        // group by crop and pick a representative entry
+        .reduce((acc: CropCalendar[], cur) => {
+          if (!acc.find(a => a.crop === cur.crop)) acc.push(cur);
+          return acc;
+        }, [] as CropCalendar[]);
+    }
+
     setCropCalendar(filtered);
     setWeatherInfo(mockWeatherData);
   }, [selectedState, selectedSeason]);
+
+  // Helper: return detailed guide for a crop
+  const getDetailedGuide = (crop: CropCalendar) => {
+    const common: string[] = [
+      `Select certified seeds of variety ${crop.variety}`,
+      `Prepare field: plough, level and apply required FYM`,
+      `Sowing/Transplanting: ${crop.sowingMonth}`,
+      `Irrigation and nutrient management as per crop stage`,
+      `Harvest around: ${crop.harvestMonth}`
+    ];
+
+    const cropSpecific: Record<string, string[]> = {
+      Rice: [
+        'Nursery preparation and 20-25 day old seedlings for transplanting',
+        'Keep standing water of 2-3 cm after transplanting',
+        'Split nitrogen application (basal, tillering, panicle initiation)'
+      ],
+      Wheat: [
+        'Sow timely after paddy to avoid heat stress',
+        'Opt for seed rate 100-125 kg/ha and proper seed treatment',
+        'Irrigate at CRI and booting stages'
+      ],
+      Maize: [
+        'Plant 2-3 seeds per hill and thin to 1 healthy plant',
+        'Side-dress nitrogen at knee-high stage',
+        'Keep weed free first 30 days'
+      ],
+      Cotton: [
+        'Maintain recommended spacing and use Bt varieties where appropriate',
+        'Apply basal and top dressing as per soil test',
+        'Monitor for bollworms and use IPM'
+      ],
+      Sugarcane: [
+        'Use 3-bud setts for sowing and maintain moisture',
+        'Apply organic manure and split fertilizer applications',
+        'Ratoon management for subsequent crops'
+      ],
+      Potato: [
+        'Use certified seed tubers and treat against pests',
+        'Earthing up before tuber initiation',
+        'Irrigate regularly to avoid tuber cracking'
+      ],
+      Tomato: [
+        'Use nursery raised seedlings and transplant carefully',
+        'Support staking and manage irrigation during fruit set',
+        'Watch for late blight and bacterial wilt'
+      ],
+      Groundnut: [
+        'Sow in well-drained soils and maintain calcium levels',
+        'Avoid waterlogging and harvest at proper pod maturity'
+      ],
+      Soybean: [
+        'Plant at the onset of monsoon and use rhizobium inoculant',
+        'Weed control early improves yields'
+      ]
+    };
+
+    const specific = cropSpecific[crop.crop] || [];
+    return [...common, ...specific];
+  };
+
+  // Dialog state
+  const [openGuide, setOpenGuide] = useState(false);
+  const [guideCrop, setGuideCrop] = useState<CropCalendar | null>(null);
 
   const getCurrentMonth = () => {
     return new Date().toLocaleString('default', { month: 'long' });
@@ -838,7 +949,7 @@ const SowingCalendar = () => {
                         </ul>
                       </div>
 
-                      <Button variant="outline" className="w-full">
+                      <Button variant="outline" className="w-full" onClick={() => { setGuideCrop(crop); setOpenGuide(true); }}>
                         Get Detailed Guide
                       </Button>
                     </CardContent>
@@ -848,7 +959,47 @@ const SowingCalendar = () => {
             )}
           </div>
         </div>
+      {/* Detailed Guide Modal */}
+      {openGuide && guideCrop && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-background rounded-lg w-11/12 md:w-2/3 max-h-[80vh] overflow-auto p-6">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-xl font-semibold">Detailed Guide — {guideCrop.crop} ({guideCrop.variety})</h3>
+                <p className="text-sm text-muted-foreground">Region: {guideCrop.region} • Season: {guideCrop.season}</p>
+              </div>
+              <div>
+                <Button variant="ghost" onClick={() => setOpenGuide(false)}>Close</Button>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <div>
+                <h4 className="font-medium">Sowing Window</h4>
+                <p className="text-sm text-muted-foreground">{guideCrop.sowingMonth} — Harvest: {guideCrop.harvestMonth} (Duration: {guideCrop.duration})</p>
+              </div>
+
+              <div>
+                <h4 className="font-medium">Step-by-step Guide</h4>
+                <ol className="list-decimal pl-5 space-y-2 text-sm text-muted-foreground mt-2">
+                  {getDetailedGuide(guideCrop).map((step, i) => (
+                    <li key={i}>{step}</li>
+                  ))}
+                </ol>
+              </div>
+
+              <div>
+                <h4 className="font-medium">Quick Tips</h4>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-muted-foreground mt-2">
+                  {guideCrop.tips.map((t, i) => <li key={i}>{t}</li>)}
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
+
     </div>
   );
 };

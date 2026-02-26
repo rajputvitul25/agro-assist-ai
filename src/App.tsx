@@ -12,6 +12,7 @@ import CropRecommendation from "./pages/CropRecommendation";
 import CropMonitoring from "./pages/CropMonitoring";
 import GovernmentUpdates from "./pages/GovernmentUpdates";
 import SowingCalendar from "./pages/SowingCalendar";
+import { Chatbot } from "@/components/Chatbot";
 
 const queryClient = new QueryClient();
 
@@ -68,6 +69,7 @@ const App = () => (
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
+        <Chatbot />
       </TooltipProvider>
     </AuthProvider>
   </QueryClientProvider>

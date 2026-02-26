@@ -5,6 +5,16 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, Megaphone, Calendar, MapPin, Search, Bell, ExternalLink } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 
 interface Update {
@@ -24,6 +34,11 @@ const GovernmentUpdates = () => {
   const navigate = useNavigate();
   const [updates, setUpdates] = useState<Update[]>([]);
   const [filteredUpdates, setFilteredUpdates] = useState<Update[]>([]);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [selectedUpdate, setSelectedUpdate] = useState<Update | null>(null);
+  const [subscribeOpen, setSubscribeOpen] = useState(false);
+  const [subscriberEmail, setSubscriberEmail] = useState("");
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedState, setSelectedState] = useState("all");
@@ -42,81 +57,64 @@ const GovernmentUpdates = () => {
     "Rajasthan", "Tamil Nadu", "Uttar Pradesh", "West Bengal"
   ];
 
-  // Mock data for government updates
+  // Load updates from the aggregated public JSON (written by tools/fetchGovUpdates.js)
   useEffect(() => {
-    const mockUpdates: Update[] = [
-      {
-        id: "1",
-        title: "PM-KISAN 13th Installment Released",
-        description: "The 13th installment of PM-KISAN scheme has been released. Eligible farmers will receive ₹2,000 directly to their bank accounts.",
-        category: "scheme",
-        state: "All States",
-        datePublished: "2024-01-15",
-        deadline: "2024-02-15",
-        isUrgent: true,
-        source: "Ministry of Agriculture",
-        link: "https://pmkisan.gov.in"
-      },
-      {
-        id: "2",
-        title: "Pradhan Mantri Fasal Bima Yojana - New Guidelines",
-        description: "Updated guidelines for crop insurance scheme. Premium rates reduced for Kharif 2024 season.",
-        category: "policy",
-        state: "All States",
-        datePublished: "2024-01-12",
-        deadline: "2024-03-31",
-        isUrgent: false,
-        source: "Department of Agriculture",
-        link: "https://pmfby.gov.in"
-      },
-      {
-        id: "3",
-        title: "Subsidy for Organic Farming Certification",
-        description: "Punjab government announces 100% subsidy for organic farming certification for small and marginal farmers.",
-        category: "subsidy",
-        state: "Punjab",
-        datePublished: "2024-01-10",
-        deadline: "2024-04-30",
-        isUrgent: false,
-        source: "Punjab Agricultural Department"
-      },
-      {
-        id: "4",
-        title: "Kisan Credit Card Interest Rate Reduction",
-        description: "Interest rate for Kisan Credit Card reduced to 4% for loans up to ₹3 lakh. Apply before the deadline.",
-        category: "announcement",
-        state: "All States",
-        datePublished: "2024-01-08",
-        deadline: "2024-02-28",
-        isUrgent: true,
-        source: "NABARD"
-      },
-      {
-        id: "5",
-        title: "Maharashtra Drought Relief Package",
-        description: "Special relief package announced for drought-affected farmers in Marathwada region. Input subsidy increased to 75%.",
-        category: "scheme",
-        state: "Maharashtra",
-        datePublished: "2024-01-05",
-        isUrgent: true,
-        source: "Maharashtra Government"
-      },
-      {
-        id: "6",
-        title: "Solar Pump Subsidy Scheme Extended",
-        description: "PM-KUSUM scheme for solar pumps extended till December 2024. 90% subsidy available for SC/ST farmers.",
-        category: "subsidy",
-        state: "All States",
-        datePublished: "2024-01-03",
-        deadline: "2024-12-31",
-        isUrgent: false,
-        source: "Ministry of New & Renewable Energy"
-      }
-    ];
+    let mounted = true;
 
-    setUpdates(mockUpdates);
-    setFilteredUpdates(mockUpdates);
+    const load = async () => {
+      try {
+        const resp = await fetch('/gov-updates.json');
+        if (!resp.ok) throw new Error('No gov updates file');
+        const data = await resp.json();
+        const items: Update[] = (data.items || []).map((it: any, idx: number) => ({
+          id: it.id || String(idx),
+          title: it.title || '',
+          description: it.description || '',
+          category: it.category || 'announcement',
+          state: it.state || 'All States',
+          datePublished: it.datePublished || new Date().toISOString(),
+          deadline: it.deadline || undefined,
+          isUrgent: it.isUrgent || false,
+          source: it.source || 'Government',
+          link: it.link || undefined
+        }));
+
+        if (mounted) {
+          setUpdates(items);
+          setFilteredUpdates(items);
+        }
+      } catch (err) {
+        console.warn('Could not load gov updates, falling back to mock data');
+      }
+    };
+
+    load();
+
+    // Poll for updates every 60 seconds to show near real-time changes
+    const iv = setInterval(load, 60 * 1000);
+    return () => { mounted = false; clearInterval(iv); };
   }, []);
+
+  // Subscription handling (stored in localStorage)
+  const saveSubscriber = (email: string) => {
+    try {
+      const key = "gov-subscribers";
+      const raw = localStorage.getItem(key);
+      const list = raw ? JSON.parse(raw) : [];
+      if (list.includes(email)) {
+        toast({ title: "Already subscribed", description: `${email} is already in the subscriber list.` });
+        return false;
+      }
+      list.push(email);
+      localStorage.setItem(key, JSON.stringify(list));
+      toast({ title: "Subscribed", description: `You will receive alerts at ${email}` });
+      return true;
+    } catch (err) {
+      console.error(err);
+      toast({ title: "Subscription failed", description: "Could not save your subscription locally." });
+      return false;
+    }
+  };
 
   // Filter updates based on search and selections
   useEffect(() => {
@@ -182,7 +180,7 @@ const GovernmentUpdates = () => {
               <span className="text-lg font-semibold">Government Updates</span>
             </div>
           </div>
-          <Button size="sm" className="hidden md:flex">
+          <Button size="sm" className="hidden md:flex" onClick={() => setSubscribeOpen(true)}>
             <Bell className="h-4 w-4 mr-2" />
             Subscribe to Alerts
           </Button>
@@ -249,6 +247,35 @@ const GovernmentUpdates = () => {
             </CardContent>
           </Card>
 
+          {/* Subscribe Dialog */}
+          <Dialog open={subscribeOpen} onOpenChange={setSubscribeOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Subscribe to Alerts</DialogTitle>
+                <DialogDescription>Enter your email to receive government update alerts.</DialogDescription>
+              </DialogHeader>
+
+              <div className="mt-2 space-y-3">
+                <Input placeholder="you@example.com" value={subscriberEmail} onChange={(e) => setSubscriberEmail(e.target.value)} />
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" onClick={() => setSubscribeOpen(false)}>Cancel</Button>
+                  <Button onClick={() => {
+                    const email = (subscriberEmail || "").trim();
+                    if (!email || !email.includes("@")) {
+                      toast({ title: "Invalid email", description: "Please provide a valid email address." });
+                      return;
+                    }
+                    if (saveSubscriber(email)) {
+                      setSubscribeOpen(false);
+                      setSubscriberEmail("");
+                    }
+                  }}>Subscribe</Button>
+                </div>
+              </div>
+
+            </DialogContent>
+          </Dialog>
+
           {/* Updates List */}
           <div className="space-y-6">
             {filteredUpdates.length === 0 ? (
@@ -303,14 +330,14 @@ const GovernmentUpdates = () => {
                       
                       <div className="flex gap-2">
                         {update.link && (
-                          <Button variant="outline" size="sm">
-                            <ExternalLink className="h-4 w-4 mr-2" />
-                            Official Link
-                          </Button>
+                            <Button variant="outline" size="sm" onClick={() => window.open(update.link, "_blank")}>
+                              <ExternalLink className="h-4 w-4 mr-2" />
+                              Official Link
+                            </Button>
                         )}
-                        <Button size="sm">
-                          Learn More
-                        </Button>
+                          <Button size="sm" onClick={() => { setSelectedUpdate(update); setDetailsOpen(true); }}>
+                            Learn More
+                          </Button>
                       </div>
                     </div>
                   </CardContent>
@@ -320,6 +347,39 @@ const GovernmentUpdates = () => {
           </div>
         </div>
       </div>
+
+      {/* Details Dialog */}
+      <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{selectedUpdate ? selectedUpdate.title : "Update Details"}</DialogTitle>
+            <DialogDescription>
+              More information about the selected government update.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="mt-2">
+            {selectedUpdate ? (
+              <>
+                <p className="text-muted-foreground mb-2">{selectedUpdate.description}</p>
+                <p className="text-sm text-muted-foreground"><strong>Source:</strong> {selectedUpdate.source}</p>
+                {selectedUpdate.deadline && <p className="text-sm text-muted-foreground"><strong>Deadline:</strong> {formatDate(selectedUpdate.deadline)}</p>}
+                {selectedUpdate.link && (
+                  <Button variant="link" className="mt-4" onClick={() => window.open(selectedUpdate.link, "_blank")}>
+                    Open Official Link
+                  </Button>
+                )}
+              </>
+            ) : (
+              <p className="text-muted-foreground">No update selected.</p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDetailsOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
