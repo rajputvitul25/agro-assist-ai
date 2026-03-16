@@ -1,4 +1,17 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { auth } from "@/firebase/firebaseConfig";
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
+  signOut,
+  onAuthStateChanged,
+} from "firebase/auth";
+
+
+import { db } from "@/firebase/firebaseConfig";
+import { doc, setDoc } from "firebase/firestore";
+
 
 interface User {
   id: string;
@@ -20,7 +33,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
 };
@@ -32,119 +45,80 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [registeredUsers, setRegisteredUsers] = useState<Map<string, { password: string; name: string }>>(new Map());
 
+  // Listen to Firebase auth state
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    const storedUsers = localStorage.getItem('registeredUsers');
-    if (storedUser) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch (error) {
-        console.error('Error parsing stored user:', error);
-        localStorage.removeItem('user');
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        setUser({
+          id: firebaseUser.uid,
+          email: firebaseUser.email || "",
+          name: firebaseUser.displayName || "User",
+        });
+      } else {
+        setUser(null);
       }
-    }
-    if (storedUsers) {
-      try {
-        setRegisteredUsers(new Map(JSON.parse(storedUsers)));
-      } catch (error) {
-        console.error('Error parsing stored users:', error);
-      }
-    }
+      setIsLoading(false);
+    });
 
-    // Ensure a demo user exists for local/dev access
-    setTimeout(() => {
-      setRegisteredUsers(prev => {
-        const copy = new Map(prev);
-        if (!copy.has('demo@farmassist.com')) {
-          copy.set('demo@farmassist.com', { password: 'demo123', name: 'Demo User' });
-          try {
-            localStorage.setItem('registeredUsers', JSON.stringify(Array.from(copy.entries())));
-          } catch (e) {
-            console.error('Failed to persist demo user:', e);
-          }
-        }
-        return copy;
-      });
-    }, 0);
-
-    setIsLoading(false);
+    return () => unsubscribe();
   }, []);
 
   const login = async (email: string, password: string): Promise<boolean> => {
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 500));
     try {
-      const response = await fetch('http://your-backend/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const firebaseUser = userCredential.user;
+
+      setUser({
+        id: firebaseUser.uid,
+        email: firebaseUser.email || "",
+        name: firebaseUser.displayName || "User",
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        const userData: User = {
-          id: data.user.id,
-          email: data.user.email,
-          name: data.user.name,
-        };
-        setUser(userData);
-        localStorage.setItem('user', JSON.stringify(userData));
-        setIsLoading(false);
-        return true;
-      }
-    } catch (err) {
-      // Backend unreachable or errored; fall through to local-user check
-      console.warn('Auth backend unreachable, falling back to local users:', err);
-    }
-
-    // Fallback: check local registered users stored in state
-    const local = registeredUsers.get(email);
-    if (local && local.password === password) {
-      const userData: User = {
-        id: email,
-        email,
-        name: local.name,
-      };
-      setUser(userData);
-      localStorage.setItem('user', JSON.stringify(userData));
       setIsLoading(false);
       return true;
-    }
-
-    setIsLoading(false);
-    return false;
-  };
-
-  const register = async (name: string, email: string, password: string): Promise<boolean> => {
-    setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    if (registeredUsers.has(email)) {
+    } catch (error) {
+      console.error("Login error:", error);
       setIsLoading(false);
       return false;
     }
-    
-    const updatedUsers = new Map(registeredUsers);
-    updatedUsers.set(email, { password, name });
-    setRegisteredUsers(updatedUsers);
-    localStorage.setItem('registeredUsers', JSON.stringify(Array.from(updatedUsers.entries())));
-    
-    const userData: User = {
-      id: email,
-      email,
-      name,
-    };
-    setUser(userData);
-    localStorage.setItem('user', JSON.stringify(userData));
-    setIsLoading(false);
-    return true;
   };
 
-  const logout = () => {
+  const register = async (name: string, email: string, password: string): Promise<boolean> => {
+  setIsLoading(true);
+  try {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+
+    await updateProfile(userCredential.user, {
+      displayName: name,
+    });
+
+    // 🔹 Save user in Firestore
+    await setDoc(doc(db, "users", userCredential.user.uid), {
+      name: name,
+      email: email,
+      createdAt: new Date().toISOString(),
+    });
+
+    setUser({
+      id: userCredential.user.uid,
+      email: userCredential.user.email || "",
+      name: name,
+    });
+
+    setIsLoading(false);
+    return true;
+
+  } catch (error) {
+    console.error("Register error:", error);
+    setIsLoading(false);
+    return false;
+  }
+ };
+  const logout = async () => {
+    await signOut(auth);
     setUser(null);
-    localStorage.removeItem('user');
   };
 
   const value: AuthContextType = {
@@ -158,4 +132,3 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
-
