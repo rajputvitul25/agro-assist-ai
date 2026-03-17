@@ -46,3 +46,6 @@ dist-ssr
 
 # Dataset
 Agro-Assist Dataset/
+
+# Backend database
+ml-backend/data/
