@@ -1,17 +1,4 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { auth } from "@/firebase/firebaseConfig";
-import {
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  updateProfile,
-  signOut,
-  onAuthStateChanged,
-} from "firebase/auth";
-
-
-import { db } from "@/firebase/firebaseConfig";
-import { doc, setDoc } from "firebase/firestore";
-
 
 interface User {
   id: string;
@@ -42,40 +29,52 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
+const API_BASE_URL = "http://localhost:8000";
+
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Listen to Firebase auth state
+  // Check for existing session on load
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      if (firebaseUser) {
-        setUser({
-          id: firebaseUser.uid,
-          email: firebaseUser.email || "",
-          name: firebaseUser.displayName || "User",
-        });
-      } else {
-        setUser(null);
+    const storedUser = localStorage.getItem("farm_user");
+    if (storedUser) {
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch {
+        localStorage.removeItem("farm_user");
       }
-      setIsLoading(false);
-    });
-
-    return () => unsubscribe();
+    }
+    setIsLoading(false);
   }, []);
 
   const login = async (email: string, password: string): Promise<boolean> => {
     setIsLoading(true);
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const firebaseUser = userCredential.user;
-
-      setUser({
-        id: firebaseUser.uid,
-        email: firebaseUser.email || "",
-        name: firebaseUser.displayName || "User",
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password }),
       });
 
+      if (!response.ok) {
+        const error = await response.json();
+        console.error("Login error:", error.detail);
+        setIsLoading(false);
+        return false;
+      }
+
+      const data = await response.json();
+      const userData = {
+        id: data.user.id,
+        email: data.user.email,
+        name: data.user.name,
+      };
+
+      setUser(userData);
+      localStorage.setItem("farm_user", JSON.stringify(userData));
       setIsLoading(false);
       return true;
     } catch (error) {
@@ -86,39 +85,44 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const register = async (name: string, email: string, password: string): Promise<boolean> => {
-  setIsLoading(true);
-  try {
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/register`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name, email, password }),
+      });
 
-    await updateProfile(userCredential.user, {
-      displayName: name,
-    });
+      if (!response.ok) {
+        const error = await response.json();
+        console.error("Register error:", error.detail);
+        setIsLoading(false);
+        return false;
+      }
 
-    // 🔹 Save user in Firestore
-    await setDoc(doc(db, "users", userCredential.user.uid), {
-      name: name,
-      email: email,
-      createdAt: new Date().toISOString(),
-    });
+      const data = await response.json();
+      const userData = {
+        id: data.user.id,
+        email: data.user.email,
+        name: data.user.name,
+      };
 
-    setUser({
-      id: userCredential.user.uid,
-      email: userCredential.user.email || "",
-      name: name,
-    });
+      setUser(userData);
+      localStorage.setItem("farm_user", JSON.stringify(userData));
+      setIsLoading(false);
+      return true;
+    } catch (error) {
+      console.error("Register error:", error);
+      setIsLoading(false);
+      return false;
+    }
+  };
 
-    setIsLoading(false);
-    return true;
-
-  } catch (error) {
-    console.error("Register error:", error);
-    setIsLoading(false);
-    return false;
-  }
- };
-  const logout = async () => {
-    await signOut(auth);
+  const logout = () => {
     setUser(null);
+    localStorage.removeItem("farm_user");
   };
 
   const value: AuthContextType = {

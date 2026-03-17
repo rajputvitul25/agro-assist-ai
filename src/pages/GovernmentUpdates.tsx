@@ -28,6 +28,8 @@ interface Update {
   isUrgent: boolean;
   source: string;
   link?: string;
+  applyLink?: string;
+  applyLabel?: string;
 }
 
 const GovernmentUpdates = () => {
@@ -63,7 +65,7 @@ const GovernmentUpdates = () => {
 
     const load = async () => {
       try {
-        const resp = await fetch('/gov-updates.json');
+        const resp = await fetch(`/gov-updates.json?t=${Date.now()}`, { cache: 'no-store' });
         if (!resp.ok) throw new Error('No gov updates file');
         const data = await resp.json();
         const items: Update[] = (data.items || []).map((it: any, idx: number) => ({
@@ -76,7 +78,9 @@ const GovernmentUpdates = () => {
           deadline: it.deadline || undefined,
           isUrgent: it.isUrgent || false,
           source: it.source || 'Government',
-          link: it.link || undefined
+          link: it.link || undefined,
+          applyLink: it.applyLink || undefined,
+          applyLabel: it.applyLabel || undefined
         }));
 
         if (mounted) {
@@ -180,7 +184,7 @@ const GovernmentUpdates = () => {
               <span className="text-lg font-semibold">Government Updates</span>
             </div>
           </div>
-          <Button size="sm" className="hidden md:flex" onClick={() => setSubscribeOpen(true)}>
+          <Button size="sm" onClick={() => setSubscribeOpen(true)}>
             <Bell className="h-4 w-4 mr-2" />
             Subscribe to Alerts
           </Button>
@@ -329,13 +333,19 @@ const GovernmentUpdates = () => {
                       </div>
                       
                       <div className="flex gap-2">
+                        {update.applyLink && update.applyLink !== update.link && (
+                            <Button size="sm" onClick={() => window.open(update.applyLink, "_blank")}>
+                              <ExternalLink className="h-4 w-4 mr-2" />
+                              {update.applyLabel || "Apply Now"}
+                            </Button>
+                        )}
                         {update.link && (
                             <Button variant="outline" size="sm" onClick={() => window.open(update.link, "_blank")}>
                               <ExternalLink className="h-4 w-4 mr-2" />
                               Official Link
                             </Button>
                         )}
-                          <Button size="sm" onClick={() => { setSelectedUpdate(update); setDetailsOpen(true); }}>
+                          <Button size="sm" variant="secondary" onClick={() => { setSelectedUpdate(update); setDetailsOpen(true); }}>
                             Learn More
                           </Button>
                       </div>
