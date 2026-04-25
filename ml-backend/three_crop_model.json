@@ -1,0 +1,108 @@
+{
+  "version": "three-crop-v2",
+  "architecture": "resnet18",
+  "image_size": 224,
+  "model_capability": "crop_and_disease",
+  "supported_crops": [
+    "Rice",
+    "Sugarcane",
+    "Wheat"
+  ],
+  "class_map": {
+    "0": [
+      "Rice",
+      "Bacterial Leaf Blight"
+    ],
+    "1": [
+      "Rice",
+      "Brown Spot"
+    ],
+    "2": [
+      "Rice",
+      "Healthy"
+    ],
+    "3": [
+      "Rice",
+      "Leaf Blast"
+    ],
+    "4": [
+      "Sugarcane",
+      "Healthy"
+    ],
+    "5": [
+      "Sugarcane",
+      "Mosaic"
+    ],
+    "6": [
+      "Sugarcane",
+      "Red Rot"
+    ],
+    "7": [
+      "Sugarcane",
+      "Rust"
+    ],
+    "8": [
+      "Sugarcane",
+      "Yellow Leaf Disease"
+    ],
+    "9": [
+      "Wheat",
+      "Brown Rust"
+    ],
+    "10": [
+      "Wheat",
+      "Healthy"
+    ],
+    "11": [
+      "Wheat",
+      "Powdery Mildew"
+    ],
+    "12": [
+      "Wheat",
+      "Septoria"
+    ],
+    "13": [
+      "Wheat",
+      "Yellow Rust"
+    ]
+  },
+  "training_summary": {
+    "epochs": 1,
+    "batch_size": 64,
+    "learning_rate": 0.0001,
+    "tune_last_block": true,
+    "max_images_per_class": 250,
+    "initial_weights": "three_crop_model.pth",
+    "validation_accuracy": 80.75,
+    "validation_loss": 0.6041,
+    "train_images": 2537,
+    "validation_images": 452,
+    "per_crop_accuracy": {
+      "Rice": 92.13,
+      "Sugarcane": 79.47,
+      "Wheat": 71.85
+    },
+    "class_counts": {
+      "Rice___Bacterial_Leaf_Blight": 250,
+      "Rice___Brown_Spot": 250,
+      "Rice___Healthy": 89,
+      "Rice___Leaf_Blast": 250,
+      "Sugarcane___Healthy": 250,
+      "Sugarcane___Mosaic": 250,
+      "Sugarcane___Red_Rot": 250,
+      "Sugarcane___Rust": 250,
+      "Sugarcane___Yellow_Leaf_Disease": 250,
+      "Wheat___Brown_Rust": 128,
+      "Wheat___Healthy": 122,
+      "Wheat___Powdery_Mildew": 161,
+      "Wheat___Septoria": 250,
+      "Wheat___Yellow_Rust": 239
+    }
+  },
+  "sources": [
+    "Zenodo sugarcane disease dataset (Healthy, Mosaic, Red Rot, Rust, Yellow Leaf Disease)",
+    "Zenodo rice disease dataset (Bacterial Leaf Blight, Brown Spot, Leaf Blast)",
+    "Zenodo healthy rice supplement",
+    "Zenodo wheat disease images (Healthy, Brown Rust, Mildew, Septoria, Yellow Rust)"
+  ]
+}

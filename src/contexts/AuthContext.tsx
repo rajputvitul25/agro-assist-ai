@@ -4,6 +4,34 @@ interface User {
   id: string;
   email: string;
   name: string;
+  isAdmin?: boolean;
+}
+
+interface AuthOverview {
+  database_path: string;
+  summary: {
+    total_users: number;
+    total_logins: number;
+    failed_logins: number;
+    latest_activity_at: string | null;
+  };
+  users: Array<{
+    id: string;
+    email: string;
+    name: string;
+    created_at: string;
+    last_login_at: string | null;
+    login_count: number;
+  }>;
+  events: Array<{
+    id: number;
+    user_id: string | null;
+    email: string;
+    event_type: string;
+    status: string;
+    details: string | null;
+    occurred_at: string;
+  }>;
 }
 
 interface AuthContextType {
@@ -13,6 +41,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
   register: (name: string, email: string, password: string) => Promise<boolean>;
+  getAuthOverview: () => Promise<AuthOverview | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -40,7 +69,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const storedUser = localStorage.getItem("farm_user");
     if (storedUser) {
       try {
-        setUser(JSON.parse(storedUser));
+        const parsed = JSON.parse(storedUser);
+        // Ensure isAdmin is preserved from storage
+        if (parsed.email) {
+          parsed.isAdmin = parsed.email.toLowerCase() === "admin@farmassist.com";
+        }
+        setUser(parsed);
       } catch {
         localStorage.removeItem("farm_user");
       }
@@ -67,10 +101,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
 
       const data = await response.json();
+      const isAdmin = email.toLowerCase() === "admin@farmassist.com";
       const userData = {
         id: data.user.id,
         email: data.user.email,
         name: data.user.name,
+        isAdmin,
       };
 
       setUser(userData);
@@ -107,6 +143,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         id: data.user.id,
         email: data.user.email,
         name: data.user.name,
+        isAdmin: false,
       };
 
       setUser(userData);
@@ -117,6 +154,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       console.error("Register error:", error);
       setIsLoading(false);
       return false;
+    }
+  };
+
+  const getAuthOverview = async (): Promise<AuthOverview | null> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/overview`);
+      if (!response.ok) {
+        console.error("Failed to fetch auth overview");
+        return null;
+      }
+      return await response.json();
+    } catch (error) {
+      console.error("Error fetching auth overview:", error);
+      return null;
     }
   };
 
@@ -132,6 +183,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     login,
     logout,
     register,
+    getAuthOverview,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

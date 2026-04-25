@@ -1,65 +1,50 @@
-import { Sprout, Mail, MapPin, GraduationCap } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Sprout } from "lucide-react";
+
+const links = [
+  { label: "Crop Recommendation", to: "/crop-recommendation" },
+  { label: "Crop Monitoring", to: "/crop-monitoring" },
+  { label: "Government Updates", to: "/government-updates" },
+  { label: "Sowing Calendar", to: "/sowing-calendar" },
+];
 
 const Footer = () => {
   return (
-    <footer className="bg-foreground text-background py-12">
-      <div className="container mx-auto px-4">
-        <div className="grid md:grid-cols-4 gap-8">
+    <footer className="relative overflow-hidden bg-[linear-gradient(135deg,rgba(22,48,22,1)_0%,rgba(34,67,31,1)_55%,rgba(49,91,39,1)_100%)] py-14 text-background">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(173,199,86,0.18),transparent_24%),radial-gradient(circle_at_bottom_left,rgba(255,255,255,0.08),transparent_30%)]" />
+
+      <div className="relative container mx-auto px-4">
+        <div className="grid gap-10 rounded-[30px] border border-white/10 bg-white/5 p-8 backdrop-blur md:grid-cols-[1.3fr_1fr]">
           <div className="space-y-4">
-            <div className="flex items-center space-x-2">
-              <Sprout className="h-8 w-8" />
-              <span className="text-xl font-bold">Smart Farmer's Assistant</span>
+            <div className="flex items-center gap-3">
+              <div className="rounded-2xl bg-white/10 p-3">
+                <Sprout className="h-6 w-6" />
+              </div>
+              <span className="text-2xl font-bold">Smart Farmer&apos;s Assistant</span>
             </div>
-            <p className="text-background/80">
-              AI-driven agricultural platform empowering farmers with intelligent 
-              crop management and advisory services.
+            <p className="max-w-xl text-background/75">
+              A cleaner farming workspace for crop advice, crop health scans, sowing support, updates, and chatbot help.
             </p>
           </div>
 
-          <div className="space-y-4">
-            <h4 className="text-lg font-semibold">Features</h4>
-            <ul className="space-y-2 text-background/80">
-              <li>Crop Recommendations</li>
-              <li>Disease Detection</li>
-              <li>Government Updates</li>
-              <li>Weather Advisory</li>
-            </ul>
-          </div>
-
-          <div className="space-y-4">
-            <h4 className="text-lg font-semibold">Academic Project</h4>
-            <div className="space-y-2 text-background/80">
-              <div className="flex items-center space-x-2">
-                <GraduationCap className="h-4 w-4" />
-                <span>IMS Engineering College</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <MapPin className="h-4 w-4" />
-                <span>Ghaziabad, India</span>
-              </div>
-              <p>Computer Science Department</p>
-              <p>Final Year Project 2025-2026</p>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <h4 className="text-lg font-semibold">Project Team</h4>
-            <div className="space-y-2 text-background/80">
-              <p><strong>Students:</strong></p>
-              <ul className="space-y-1">
-                <li>Vitul Rajput</li>
-                <li>Isha Rajput</li>
-                <li>Kanishka Gaur</li>
-              </ul>
-              <p className="mt-3"><strong>Guide:</strong></p>
-              <p>Dr. Sonia Juneja</p>
-              <p>Head of Department</p>
+          <div>
+            <h4 className="text-lg font-semibold">Quick Links</h4>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {links.map((link) => (
+                <Link
+                  key={link.to}
+                  to={link.to}
+                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-background/80 transition-all hover:border-white/20 hover:bg-white/10 hover:text-white"
+                >
+                  {link.label}
+                </Link>
+              ))}
             </div>
           </div>
         </div>
 
-        <div className="border-t border-background/20 mt-8 pt-8 text-center text-background/60">
-          <p>&copy; 2025 Smart Farmer's Assistant. Academic Project - IMS Engineering College, Ghaziabad.</p>
+        <div className="mt-8 text-center text-sm text-background/55">
+          <p>&copy; 2025 Smart Farmer&apos;s Assistant.</p>
         </div>
       </div>
     </footer>

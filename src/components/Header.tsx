@@ -1,4 +1,4 @@
-import { Sprout, Menu, LogOut, User } from "lucide-react";
+import { Sprout, Menu, LogOut, User, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -38,6 +38,11 @@ const Header = () => {
     { label: "Gov Updates", to: "/government-updates" },
     { label: "Sowing Calendar", to: "/sowing-calendar" },
   ];
+
+  // Add admin dashboard link if user is admin
+  if (user?.isAdmin) {
+    navItems.push({ label: "Admin", to: "/admin" });
+  }
 
   return (
     <header className="w-full bg-background/80 backdrop-blur-md border-b border-border sticky top-0 z-50 animate-fade-in">

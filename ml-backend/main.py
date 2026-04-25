@@ -1,26 +1,31 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import uvicorn
-from model import PlantDiseaseDetector
 import os
-from typing import Optional, List, Any, Dict
-import logging
 from threading import Lock
-from auth_store import ensure_demo_user, ensure_admin_user, get_auth_overview, initialize_auth_db, login_user, register_user
+from typing import Any, Dict, List, Literal, Optional
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+import uvicorn
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
-# Initialize FastAPI
+from auth_store import (
+    ensure_admin_user,
+    ensure_demo_user,
+    get_auth_overview,
+    initialize_auth_db,
+    login_user,
+    register_user,
+)
+from download_dataset import download_three_crop_datasets, prepare_three_crop_dataset
+from model import PlantDiseaseDetector
+from chatbot_engine import FarmChatbotEngine
+
+
 app = FastAPI(
-    title="Plant Disease Detection API",
-    description="ML-powered crop disease detection using CNN",
-    version="1.0.0"
+    title="Smart Farming Assistant Crop Monitoring API",
+    description="Crop monitoring backend for Sugarcane, Wheat, and Rice disease analysis",
+    version="2.0.0",
 )
 
-# Add CORS middleware for frontend communication
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,35 +38,42 @@ initialize_auth_db()
 ensure_demo_user()
 ensure_admin_user()
 
-model_weights = os.getenv("MODEL_WEIGHTS")
-default_model_path = os.path.join(os.path.dirname(__file__), "model.pth")
-resolved_model_path = model_weights or (default_model_path if os.path.isfile(default_model_path) else None)
+
+def _default_model_path() -> Optional[str]:
+    backend_dir = os.path.dirname(__file__)
+    preferred = os.path.join(backend_dir, "three_crop_model.pth")
+    legacy = os.path.join(backend_dir, "model.pth")
+    if os.path.isfile(preferred):
+        return preferred
+    if os.path.isfile(legacy):
+        return legacy
+    return None
+
+
+resolved_model_path = os.getenv("MODEL_WEIGHTS") or _default_model_path()
 detector: Optional[PlantDiseaseDetector] = None
 detector_lock = Lock()
+chatbot_engine = FarmChatbotEngine()
 
 
 def get_detector() -> PlantDiseaseDetector:
     global detector
-
     if detector is not None:
         return detector
 
     with detector_lock:
         if detector is not None:
             return detector
-
-        logger.info("Loading Plant Disease Detection Model...")
-        if resolved_model_path:
-            logger.info("Using model weights from %s", resolved_model_path)
-        else:
-            logger.warning("No model weights found; predictions will use an untrained model")
-
         detector = PlantDiseaseDetector(model_path=resolved_model_path)
-        logger.info("Model loaded successfully!")
         return detector
 
 
-# Pydantic models
+def reset_detector():
+    global detector
+    with detector_lock:
+        detector = None
+
+
 class PredictionResponse(BaseModel):
     crop_type: str
     disease: str
@@ -132,17 +144,38 @@ class AuthOverviewResponse(BaseModel):
     events: List[AuthEvent]
 
 
-# Routes
+class ChatHistoryMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str
+    topic: Optional[str] = None
 
-from download_dataset import download_three_crop_datasets, prepare_three_crop_dataset, fetch_plant_village
+
+class ChatRequest(BaseModel):
+    message: str
+    language: Literal["en", "hi"] = "en"
+    history: List[ChatHistoryMessage] = Field(default_factory=list)
+
+
+class ChatAction(BaseModel):
+    label: str
+    route: Optional[str] = None
+    message: Optional[str] = None
+    url: Optional[str] = None
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    language: Literal["en", "hi"]
+    topic: str
+    suggestions: List[str]
+    actions: List[ChatAction]
 
 
 @app.get("/health", response_model=HealthCheck)
 async def health_check():
-    """Check if API is running"""
     return {
         "status": "healthy",
-        "message": "Plant Disease Detection API is running"
+        "message": "Crop monitoring backend is running",
     }
 
 
@@ -151,14 +184,9 @@ async def register(request: AuthRegisterRequest) -> AuthResponse:
     if len(request.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
 
-    user = register_user(
-        name=request.name,
-        email=request.email,
-        password=request.password,
-    )
+    user = register_user(name=request.name, email=request.email, password=request.password)
     if user is None:
         raise HTTPException(status_code=409, detail="Email already exists")
-
     return {"user": user}
 
 
@@ -167,7 +195,6 @@ async def login(request: AuthLoginRequest) -> AuthResponse:
     user = login_user(email=request.email, password=request.password)
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid email or password")
-
     return {"user": user}
 
 
@@ -176,149 +203,125 @@ async def auth_overview(limit: int = 50) -> AuthOverviewResponse:
     return get_auth_overview(limit=limit)
 
 
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest) -> ChatResponse:
+    try:
+        result = chatbot_engine.respond(
+            message=request.message,
+            language=request.language,
+            history=[entry.model_dump() for entry in request.history],
+        )
+        return ChatResponse(**result)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Chat error: {exc}")
+
+
 @app.post("/predict", response_model=PredictionResponse)
 async def predict_disease(
     file: UploadFile = File(...),
-    crop_hint: Optional[str] = Form(None)
+    crop_hint: Optional[str] = Form(None),
 ) -> PredictionResponse:
-    """
-    Upload a crop image and get disease prediction
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
 
-    Supported crops: Sugarcane, Wheat, Rice
-    Returns detailed disease analysis with AI insights
-    """
-    try:
-        # Validate file type
-        if not file.content_type.startswith('image/'):
-            raise HTTPException(status_code=400, detail="File must be an image")
+    image_data = await file.read()
+    if not image_data:
+        raise HTTPException(status_code=400, detail="Empty image file")
 
-        # Read image data
-        image_data = await file.read()
-
-        if len(image_data) == 0:
-            raise HTTPException(status_code=400, detail="Empty image file")
-
-        logger.info(f"Processing image: {file.filename}")
-
-        # Get prediction from model
-        result = get_detector().predict(image_data, crop_hint=crop_hint)
-
-        if "error" in result:
-            raise HTTPException(status_code=500, detail=f"Prediction error: {result['error']}")
-
-        logger.info(f"Prediction complete for {file.filename}: {result['disease']}")
-
-        return PredictionResponse(**result)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error processing image: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
+    result = get_detector().predict(image_data, crop_hint=crop_hint)
+    if "error" in result:
+        raise HTTPException(status_code=500, detail=f"Prediction error: {result['error']}")
+    return PredictionResponse(**result)
 
 
 @app.post("/batch-predict")
-async def batch_predict(files: List[UploadFile] = File(...)):
-    """
-    Process multiple images at once
-    """
-    results = []
+async def batch_predict(files: List[UploadFile] = File(...), crop_hint: Optional[str] = Form(None)):
+    predictions = []
+    detector_instance = get_detector()
 
-    for file in files:
+    for uploaded_file in files:
         try:
-            image_data = await file.read()
-            result = detector.predict(image_data)
-            if "error" not in result:
-                results.append({
-                    "filename": file.filename,
-                    "prediction": result
-                })
-        except Exception as e:
-            results.append({
-                "filename": file.filename,
-                "error": str(e)
-            })
+            image_data = await uploaded_file.read()
+            result = detector_instance.predict(image_data, crop_hint=crop_hint)
+            if "error" in result:
+                predictions.append({"filename": uploaded_file.filename, "error": result["error"]})
+            else:
+                predictions.append({"filename": uploaded_file.filename, "prediction": result})
+        except Exception as exc:
+            predictions.append({"filename": uploaded_file.filename, "error": str(exc)})
 
-    return results
+    return predictions
 
 
 @app.get("/model-info")
 async def model_info():
-    """Get information about the model"""
+    detector_instance = get_detector()
+    metadata = detector_instance.metadata
+    training_summary = metadata.get("training_summary", {})
+    class_map = metadata.get("class_map", {})
+
+    supported_diseases: Dict[str, List[str]] = {}
+    for value in class_map.values():
+        crop, disease = value
+        supported_diseases.setdefault(crop, []).append(disease)
+
     return {
-        "model_name": "PlantDiseaseDetector v1",
-        "architecture": "ResNet50 with Transfer Learning",
-        "dataset": "Three Kaggle datasets for Sugarcane, Wheat, Rice",
-        "supported_crops": ["Sugarcane", "Wheat", "Rice"],
-        "num_disease_classes": 18,
-        "accuracy": "TBD after retraining",
-        "input_size": "224x224",
-        "framework": "PyTorch",
-        "note": "Use /download-three-crop-datasets to refresh training data",
+        "model_name": "Three Crop Leaf Classifier",
+        "version": metadata.get("version", "unknown"),
+        "architecture": metadata.get("architecture", "unknown"),
+        "model_path": resolved_model_path,
+        "input_size": metadata.get("image_size", 224),
+        "supported_crops": metadata.get("supported_crops", ["Sugarcane", "Wheat", "Rice"]),
+        "supported_diseases": {
+            crop: sorted(diseases) for crop, diseases in sorted(supported_diseases.items())
+        },
+        "num_classes": len(class_map),
+        "validation_accuracy": training_summary.get("validation_accuracy"),
+        "per_crop_accuracy": training_summary.get("per_crop_accuracy", {}),
+        "class_counts": training_summary.get("class_counts", {}),
+        "sources": metadata.get("sources", []),
         "model_loaded": detector is not None,
     }
 
 
 @app.post("/download-three-crop-datasets")
 async def download_three_crop_datasets_endpoint():
-    """Download and prepare the 3 datasets for Sugarcane, Wheat, Rice."""
     try:
-        raw = download_three_crop_datasets()
-        prepared = prepare_three_crop_dataset(raw_root="data/raw_three_crops", out_root="data/filtered_three_crops")
-        return {"status": "success", "raw": raw, "prepared": prepared}
-    except Exception as e:
-        logger.error(f"Failed to fetch datasets: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/download-dataset")
-async def download_dataset():
-    """Backward compatible endpoint for PlantVillage dataset download."""
-    try:
-        path = fetch_plant_village()
-        return {"status": "success", "path": path}
-    except Exception as e:
-        logger.error(f"Failed to fetch dataset: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        downloaded = download_three_crop_datasets(dest_root="data/source_archives")
+        prepared = prepare_three_crop_dataset(archive_root="data/source_archives", out_root="data/three_crop_dataset")
+        return {"status": "success", "downloaded": downloaded, "prepared": prepared}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.get("/")
 async def root():
-    """API root endpoint"""
     return {
-        "name": "Smart Farmer AI - Plant Disease Detection",
-        "version": "1.0.0",
+        "name": "Smart Farming Assistant Crop Monitoring API",
+        "version": "2.0.0",
+        "supported_crops": ["Sugarcane", "Wheat", "Rice"],
         "endpoints": {
             "health": "/health",
-            "predict": "/predict (POST)",
-            "batch_predict": "/batch-predict (POST)",
+            "chat": "/chat",
+            "predict": "/predict",
+            "batch_predict": "/batch-predict",
             "model_info": "/model-info",
-            "auth_register": "/auth/register (POST)",
-            "auth_login": "/auth/login (POST)",
-            "auth_overview": "/auth/overview",
-            "docs": "/docs"
-        }
+            "download_three_crop_datasets": "/download-three-crop-datasets",
+            "docs": "/docs",
+        },
     }
 
 
 if __name__ == "__main__":
-    import sys
+    import argparse
 
-    # allow quick dataset download from command line
-    if len(sys.argv) > 1 and sys.argv[1] == "--download-data":
-        print("Downloading and preparing three-crop datasets before starting API...")
-        try:
-            download_three_crop_datasets()
-            prepare_three_crop_dataset(raw_root="data/raw_three_crops", out_root="data/filtered_three_crops")
-        except Exception as e:
-            print(f"Error downloading dataset: {e}")
-            sys.exit(1)
+    parser = argparse.ArgumentParser(description="Run the crop monitoring backend")
+    parser.add_argument("--download-data", action="store_true", help="Download and prepare datasets before starting")
+    args = parser.parse_args()
+
+    if args.download_data:
+        download_three_crop_datasets(dest_root="data/source_archives")
+        prepare_three_crop_dataset(archive_root="data/source_archives", out_root="data/three_crop_dataset")
 
     port = int(os.getenv("PORT", 8000))
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=port,
-        reload=False,
-        log_level="info"
-    )
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False, log_level="info")

@@ -1,641 +1,748 @@
-import os
+import copy
+import io
 import json
-import hashlib
+import os
+import random
+from collections import Counter, defaultdict
+from dataclasses import dataclass
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+
+import numpy as np
 import torch
 import torch.nn as nn
-import torchvision.models as models
 from PIL import Image
-import numpy as np
-from typing import Dict, List, Optional, Tuple
-import io
-import base64
+from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
+from torchvision import models, transforms
 
-class PlantDiseaseDetector:
-    """
-    Plant Disease Detection using ResNet50 with transfer learning
-    Trained on plant disease patterns from PlantVillage dataset
-    """
-    
-    def __init__(self, model_path: str = None):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
-        # Disease classes for Sugarcane, Wheat, and Rice
-        # mapping is used during prediction – the final model will be trained
-        # on **all** classes (18 total) so we can have a single network.
-        self.disease_classes = {
-            "Sugarcane": {
-                0: "Healthy",
-                1: "Red Rot Disease",
-                2: "Sugarcane Mosaic Virus",
-                3: "Smut Disease",
-                4: "Leaf Scorch"
-            },
-            "Wheat": {
-                0: "Healthy",
-                1: "Powdery Mildew",
-                2: "Leaf Rust",
-                3: "Stem Rust",
-                4: "Septoria Leaf Blotch",
-                5: "Nitrogen Deficiency"
-            },
-            "Rice": {
-                0: "Healthy",
-                1: "Brown Spot",
-                2: "Leaf Blast",
-                3: "Bacterial Leaf Blight",
-                4: "Sheath Blight",
-                5: "Tungro Disease"
-            }
-        }
 
-        # previously we maintained explicit offsets for each crop when the
-        # network produced a fixed 18‑class output.  The new training approach
-        # builds a mapping from dataset classes to (crop,disease) pairs, so
-        # these offsets are no longer needed.
-        # self._crop_order and _crop_offsets are kept for backward
-        # compatibility but not used.
-        self._crop_order = ["Sugarcane", "Wheat", "Rice"]
-        self._crop_offsets = {}  # retained but unused
+IMAGE_SIZE = 224
+DEFAULT_ARCHITECTURE = "resnet18"
+DEFAULT_MODEL_CAPABILITY = "crop_and_disease"
+MODEL_VERSION = "three-crop-v2"
+RANDOM_SEED = 42
 
-        # Build / load class mapping used during prediction
-        self._class_map = self._default_class_map()
-        model_state = None
-        if model_path and os.path.isfile(model_path):
-            meta_path = self._metadata_path(model_path)
-            if os.path.isfile(meta_path):
-                try:
-                    with open(meta_path, "r", encoding="utf-8") as f:
-                        meta = json.load(f)
-                        self._class_map = {int(k): tuple(v) for k, v in meta.get("class_map", {}).items()}
-                except Exception:
-                    # If metadata can't be loaded, continue using the default mapping.
-                    pass
-            model_state = torch.load(model_path, map_location=self.device)
 
-        # Load pre-trained ResNet50 (similar to V2Net efficiency)
-        # To avoid a large download every time the server starts we allow
-        # specifying a local weights file via the `model_path` argument.
-        # If no path is given we still construct the ResNet50 architecture
-        # but do **not** download imagenet weights (weights=None). This lets
-        # the API start quickly in development environments with limited
-        # network access.
-        self.model = models.resnet50(weights=None)
+def _set_seed(seed: int = RANDOM_SEED):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
-        # Freeze early layers for transfer learning
-        for param in list(self.model.parameters())[:-4]:
-            param.requires_grad = False
 
-        # Replace final classification layers according to the output size we
-        # either infer from the saved state dict or expect from the class map.
-        num_output_classes = self._determine_output_classes(model_state)
-        in_features = self.model.fc.in_features
-        self.model.fc = nn.Sequential(
-            nn.Linear(in_features, 512),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(512, 256),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(256, num_output_classes)
+def _is_image_file(path: str) -> bool:
+    return os.path.splitext(path)[1].lower() in {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
+
+
+def _metadata_path(model_path: str) -> str:
+    base, _ = os.path.splitext(model_path)
+    return f"{base}.json"
+
+
+def _normalize_crop_hint(crop_hint: Optional[str]) -> Optional[str]:
+    if not crop_hint:
+        return None
+
+    normalized = crop_hint.strip().lower()
+    aliases = {
+        "sugarcane": "Sugarcane",
+        "wheat": "Wheat",
+        "rice": "Rice",
+    }
+    return aliases.get(normalized)
+
+
+def _humanize_class_folder(folder_name: str) -> Tuple[str, str]:
+    if "___" not in folder_name:
+        raise ValueError(f"Invalid class folder name: {folder_name}")
+
+    crop, disease = folder_name.split("___", 1)
+    crop = crop.replace("_", " ").strip().title()
+    disease = disease.replace("_", " ").strip()
+    return crop, disease
+
+
+def _format_class_name(crop: str, disease: str) -> str:
+    return f"{crop}___{disease}".replace(" ", "_")
+
+
+def _build_architecture(
+    architecture: str,
+    num_classes: int,
+    pretrained: bool = False,
+    legacy_classifier: bool = False,
+) -> nn.Module:
+    if architecture == "resnet18":
+        weights = models.ResNet18_Weights.DEFAULT if pretrained else None
+        model = models.resnet18(weights=weights)
+        in_features = model.fc.in_features
+        model.fc = nn.Linear(in_features, num_classes)
+        return model
+
+    if architecture == "resnet50":
+        weights = models.ResNet50_Weights.DEFAULT if pretrained else None
+        model = models.resnet50(weights=weights)
+        in_features = model.fc.in_features
+        if legacy_classifier:
+            model.fc = nn.Sequential(
+                nn.Linear(in_features, 512),
+                nn.ReLU(),
+                nn.Dropout(0.5),
+                nn.Linear(512, 256),
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(256, num_classes),
+            )
+        else:
+            model.fc = nn.Linear(in_features, num_classes)
+        return model
+
+    raise ValueError(f"Unsupported architecture: {architecture}")
+
+
+def _determine_architecture(model_state: Dict[str, torch.Tensor], metadata: Optional[Dict]) -> str:
+    if metadata and metadata.get("architecture"):
+        return metadata["architecture"]
+
+    # Legacy fallback: the original project stored a ResNet50 checkpoint.
+    if "layer4.2.conv3.weight" in model_state or "fc.0.weight" in model_state:
+        return "resnet50"
+    return DEFAULT_ARCHITECTURE
+
+
+def _determine_num_classes(model_state: Dict[str, torch.Tensor], architecture: str) -> int:
+    if architecture == "resnet18" and "fc.weight" in model_state:
+        return int(model_state["fc.weight"].shape[0])
+    if architecture == "resnet50" and "fc.weight" in model_state:
+        return int(model_state["fc.weight"].shape[0])
+    if architecture == "resnet50" and "fc.6.weight" in model_state:
+        return int(model_state["fc.6.weight"].shape[0])
+    raise ValueError("Unable to infer classifier output size from checkpoint")
+
+
+def _uses_legacy_classifier(model_state: Dict[str, torch.Tensor]) -> bool:
+    return "fc.6.weight" in model_state
+
+
+def _default_metadata() -> Dict[str, object]:
+    class_map = {
+        0: ("Rice", "Healthy"),
+        1: ("Rice", "Bacterial Leaf Blight"),
+        2: ("Rice", "Brown Spot"),
+        3: ("Rice", "Leaf Blast"),
+        4: ("Sugarcane", "Healthy"),
+        5: ("Sugarcane", "Mosaic"),
+        6: ("Sugarcane", "Red Rot"),
+        7: ("Sugarcane", "Rust"),
+        8: ("Sugarcane", "Yellow Leaf Disease"),
+        9: ("Wheat", "Healthy"),
+        10: ("Wheat", "Brown Rust"),
+        11: ("Wheat", "Powdery Mildew"),
+        12: ("Wheat", "Septoria"),
+        13: ("Wheat", "Yellow Rust"),
+    }
+    return {
+        "version": MODEL_VERSION,
+        "architecture": DEFAULT_ARCHITECTURE,
+        "image_size": IMAGE_SIZE,
+        "class_map": {str(index): list(value) for index, value in class_map.items()},
+        "supported_crops": ["Sugarcane", "Wheat", "Rice"],
+        "training_summary": {},
+        "sources": [],
+    }
+
+
+@dataclass(frozen=True)
+class ImageSample:
+    path: str
+    label: int
+    class_name: str
+
+
+class LeafDataset(Dataset):
+    def __init__(self, samples: Sequence[ImageSample], transform: transforms.Compose):
+        self.samples = list(samples)
+        self.transform = transform
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def __getitem__(self, index: int):
+        sample = self.samples[index]
+        image = Image.open(sample.path).convert("RGB")
+        return self.transform(image), sample.label
+
+
+def _collect_samples(dataset_dir: str) -> Tuple[List[ImageSample], List[str]]:
+    if not os.path.isdir(dataset_dir):
+        raise FileNotFoundError(f"Dataset directory not found: {dataset_dir}")
+
+    class_names = sorted(
+        entry
+        for entry in os.listdir(dataset_dir)
+        if os.path.isdir(os.path.join(dataset_dir, entry)) and "___" in entry
+    )
+    if not class_names:
+        raise ValueError(f"No class folders found in dataset directory: {dataset_dir}")
+
+    class_to_index = {class_name: idx for idx, class_name in enumerate(class_names)}
+    samples: List[ImageSample] = []
+    for class_name in class_names:
+        class_dir = os.path.join(dataset_dir, class_name)
+        for file_name in sorted(os.listdir(class_dir)):
+            path = os.path.join(class_dir, file_name)
+            if os.path.isfile(path) and _is_image_file(path):
+                samples.append(ImageSample(path=path, label=class_to_index[class_name], class_name=class_name))
+
+    if not samples:
+        raise ValueError(f"No images found in dataset directory: {dataset_dir}")
+
+    return samples, class_names
+
+
+def _split_samples(samples: Sequence[ImageSample], val_fraction: float, seed: int) -> Tuple[List[ImageSample], List[ImageSample]]:
+    grouped: Dict[int, List[ImageSample]] = defaultdict(list)
+    for sample in samples:
+        grouped[sample.label].append(sample)
+
+    rng = random.Random(seed)
+    train_samples: List[ImageSample] = []
+    val_samples: List[ImageSample] = []
+    for _, group in grouped.items():
+        group = list(group)
+        rng.shuffle(group)
+        val_count = max(1, int(round(len(group) * val_fraction)))
+        if len(group) <= 2:
+            val_count = 1
+        val_samples.extend(group[:val_count])
+        train_samples.extend(group[val_count:])
+
+    if not train_samples or not val_samples:
+        raise ValueError("Unable to create a non-empty train/validation split")
+
+    return train_samples, val_samples
+
+
+def _cap_samples_per_class(samples: Sequence[ImageSample], max_images_per_class: Optional[int], seed: int) -> List[ImageSample]:
+    if not max_images_per_class or max_images_per_class <= 0:
+        return list(samples)
+
+    grouped: Dict[int, List[ImageSample]] = defaultdict(list)
+    for sample in samples:
+        grouped[sample.label].append(sample)
+
+    rng = random.Random(seed)
+    capped_samples: List[ImageSample] = []
+    for _, group in grouped.items():
+        group = list(group)
+        if len(group) > max_images_per_class:
+            rng.shuffle(group)
+            group = group[:max_images_per_class]
+        capped_samples.extend(group)
+    return capped_samples
+
+
+def _build_transforms(train: bool) -> transforms.Compose:
+    if train:
+        return transforms.Compose(
+            [
+                transforms.Resize((256, 256)),
+                transforms.RandomResizedCrop(IMAGE_SIZE, scale=(0.8, 1.0)),
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomRotation(12),
+                transforms.ColorJitter(brightness=0.15, contrast=0.15, saturation=0.1, hue=0.03),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+            ]
         )
 
+    return transforms.Compose(
+        [
+            transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ]
+    )
+
+
+def _class_distribution(samples: Sequence[ImageSample], class_names: Sequence[str]) -> Dict[str, int]:
+    counts = Counter(sample.class_name for sample in samples)
+    return {class_name: counts.get(class_name, 0) for class_name in class_names}
+
+
+def _class_weights(train_samples: Sequence[ImageSample], class_names: Sequence[str], device: torch.device) -> torch.Tensor:
+    counts = _class_distribution(train_samples, class_names)
+    weights = []
+    for class_name in class_names:
+        count = counts[class_name]
+        weights.append(1.0 / max(count, 1))
+    tensor = torch.tensor(weights, dtype=torch.float32, device=device)
+    return tensor / tensor.sum() * len(class_names)
+
+
+def _weighted_sampler(train_samples: Sequence[ImageSample], class_names: Sequence[str]) -> WeightedRandomSampler:
+    counts = _class_distribution(train_samples, class_names)
+    weights = [1.0 / max(counts[sample.class_name], 1) for sample in train_samples]
+    return WeightedRandomSampler(weights=weights, num_samples=len(train_samples), replacement=True)
+
+
+def _class_map_from_names(class_names: Sequence[str]) -> Dict[int, Tuple[str, str]]:
+    mapping: Dict[int, Tuple[str, str]] = {}
+    for index, class_name in enumerate(class_names):
+        mapping[index] = _humanize_class_folder(class_name)
+    return mapping
+
+
+def _crop_class_indices(class_map: Dict[int, Tuple[str, str]]) -> Dict[str, List[int]]:
+    mapping: Dict[str, List[int]] = defaultdict(list)
+    for index, (crop, _) in class_map.items():
+        mapping[crop].append(index)
+    return {crop: sorted(indices) for crop, indices in mapping.items()}
+
+
+def _per_crop_accuracy(predictions: Sequence[int], labels: Sequence[int], class_map: Dict[int, Tuple[str, str]]) -> Dict[str, float]:
+    crop_hits: Dict[str, int] = defaultdict(int)
+    crop_total: Dict[str, int] = defaultdict(int)
+    for prediction, label in zip(predictions, labels):
+        crop, _ = class_map[label]
+        crop_total[crop] += 1
+        if prediction == label:
+            crop_hits[crop] += 1
+
+    return {
+        crop: round((crop_hits[crop] / crop_total[crop]) * 100.0, 2)
+        for crop in sorted(crop_total)
+        if crop_total[crop] > 0
+    }
+
+
+def train_three_crop_model(
+    dataset_dir: str,
+    output_path: str = "three_crop_model.pth",
+    architecture: str = DEFAULT_ARCHITECTURE,
+    epochs: int = 2,
+    batch_size: int = 64,
+    learning_rate: float = 3e-4,
+    val_fraction: float = 0.15,
+    pretrained: bool = True,
+    tune_last_block: bool = False,
+    max_images_per_class: Optional[int] = 250,
+    initial_weights: Optional[str] = None,
+    seed: int = RANDOM_SEED,
+) -> Dict[str, object]:
+    _set_seed(seed)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    samples, class_names = _collect_samples(dataset_dir)
+    samples = _cap_samples_per_class(samples, max_images_per_class=max_images_per_class, seed=seed)
+    train_samples, val_samples = _split_samples(samples, val_fraction=val_fraction, seed=seed)
+
+    train_dataset = LeafDataset(train_samples, transform=_build_transforms(train=True))
+    val_dataset = LeafDataset(val_samples, transform=_build_transforms(train=False))
+
+    sampler = _weighted_sampler(train_samples, class_names)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+
+    model = _build_architecture(architecture=architecture, num_classes=len(class_names), pretrained=pretrained).to(device)
+    if initial_weights and os.path.isfile(initial_weights):
+        state_dict = torch.load(initial_weights, map_location=device)
+        model.load_state_dict(state_dict)
+    for parameter in model.parameters():
+        parameter.requires_grad = False
+
+    if architecture.startswith("resnet"):
+        if tune_last_block:
+            for parameter in model.layer4.parameters():
+                parameter.requires_grad = True
+        for parameter in model.fc.parameters():
+            parameter.requires_grad = True
+
+    optimizer = torch.optim.AdamW(
+        (parameter for parameter in model.parameters() if parameter.requires_grad),
+        lr=learning_rate,
+        weight_decay=1e-4,
+    )
+    criterion = nn.CrossEntropyLoss(weight=_class_weights(train_samples, class_names, device))
+
+    best_state: Optional[Dict[str, torch.Tensor]] = None
+    best_metrics = {"val_accuracy": 0.0, "val_loss": float("inf")}
+
+    for epoch in range(epochs):
+        model.train()
+        train_loss_total = 0.0
+        train_items = 0
+        for images, labels in train_loader:
+            images = images.to(device)
+            labels = labels.to(device)
+
+            optimizer.zero_grad()
+            logits = model(images)
+            loss = criterion(logits, labels)
+            loss.backward()
+            optimizer.step()
+
+            train_loss_total += loss.item() * labels.size(0)
+            train_items += labels.size(0)
+
+        model.eval()
+        val_loss_total = 0.0
+        val_items = 0
+        correct = 0
+        all_predictions: List[int] = []
+        all_labels: List[int] = []
+        with torch.no_grad():
+            for images, labels in val_loader:
+                images = images.to(device)
+                labels = labels.to(device)
+                logits = model(images)
+                loss = criterion(logits, labels)
+                predictions = torch.argmax(logits, dim=1)
+
+                val_loss_total += loss.item() * labels.size(0)
+                val_items += labels.size(0)
+                correct += int((predictions == labels).sum().item())
+                all_predictions.extend(predictions.cpu().tolist())
+                all_labels.extend(labels.cpu().tolist())
+
+        train_loss = train_loss_total / max(train_items, 1)
+        val_loss = val_loss_total / max(val_items, 1)
+        val_accuracy = (correct / max(val_items, 1)) * 100.0
+        print(
+            f"Epoch {epoch + 1}/{epochs} | "
+            f"train_loss={train_loss:.4f} | "
+            f"val_loss={val_loss:.4f} | "
+            f"val_accuracy={val_accuracy:.2f}%"
+        )
+
+        if (val_accuracy > best_metrics["val_accuracy"]) or (
+            abs(val_accuracy - best_metrics["val_accuracy"]) < 1e-6 and val_loss < best_metrics["val_loss"]
+        ):
+            best_metrics = {"val_accuracy": round(val_accuracy, 2), "val_loss": round(val_loss, 4)}
+            best_state = copy.deepcopy(model.state_dict())
+            best_predictions = all_predictions
+            best_labels = all_labels
+
+    if best_state is None:
+        raise RuntimeError("Training finished without producing a valid checkpoint")
+
+    class_map = _class_map_from_names(class_names)
+    metadata = {
+        "version": MODEL_VERSION,
+        "architecture": architecture,
+        "image_size": IMAGE_SIZE,
+        "model_capability": DEFAULT_MODEL_CAPABILITY,
+        "supported_crops": sorted({crop for crop, _ in class_map.values()}),
+        "class_map": {str(index): list(value) for index, value in class_map.items()},
+        "training_summary": {
+            "epochs": epochs,
+            "batch_size": batch_size,
+            "learning_rate": learning_rate,
+            "tune_last_block": tune_last_block,
+            "max_images_per_class": max_images_per_class,
+            "initial_weights": initial_weights,
+            "validation_accuracy": best_metrics["val_accuracy"],
+            "validation_loss": best_metrics["val_loss"],
+            "train_images": len(train_samples),
+            "validation_images": len(val_samples),
+            "per_crop_accuracy": _per_crop_accuracy(best_predictions, best_labels, class_map),
+            "class_counts": _class_distribution(samples, class_names),
+        },
+        "sources": [
+            "Zenodo sugarcane disease dataset (Healthy, Mosaic, Red Rot, Rust, Yellow Leaf Disease)",
+            "Zenodo rice disease dataset (Bacterial Leaf Blight, Brown Spot, Leaf Blast)",
+            "Zenodo healthy rice supplement",
+            "Zenodo wheat disease images (Healthy, Brown Rust, Mildew, Septoria, Yellow Rust)",
+        ],
+    }
+
+    torch.save(best_state, output_path)
+    with open(_metadata_path(output_path), "w", encoding="utf-8") as metadata_file:
+        json.dump(metadata, metadata_file, indent=2)
+
+    return {
+        "output_path": output_path,
+        "metadata_path": _metadata_path(output_path),
+        "validation_accuracy": best_metrics["val_accuracy"],
+        "validation_loss": best_metrics["val_loss"],
+        "num_classes": len(class_names),
+        "class_counts": _class_distribution(samples, class_names),
+    }
+
+
+class PlantDiseaseDetector:
+    def __init__(self, model_path: Optional[str] = None):
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.image_size = IMAGE_SIZE
+
+        metadata = _default_metadata()
+        model_state: Optional[Dict[str, torch.Tensor]] = None
+
+        if model_path and os.path.isfile(model_path):
+            meta_path = _metadata_path(model_path)
+            if os.path.isfile(meta_path):
+                with open(meta_path, "r", encoding="utf-8") as metadata_file:
+                    metadata = json.load(metadata_file)
+            model_state = torch.load(model_path, map_location=self.device)
+
+        self.metadata = metadata
+        self.class_map = {
+            int(index): (value[0], value[1])
+            for index, value in metadata.get("class_map", {}).items()
+        }
+
+        architecture = metadata.get("architecture", DEFAULT_ARCHITECTURE)
+        legacy_classifier = False
+        if model_state is not None:
+            architecture = _determine_architecture(model_state, metadata)
+            num_classes = _determine_num_classes(model_state, architecture)
+            legacy_classifier = _uses_legacy_classifier(model_state)
+        else:
+            num_classes = max(len(self.class_map), 1)
+
+        if not self.class_map:
+            fallback = _default_metadata()["class_map"]
+            self.class_map = {int(index): (value[0], value[1]) for index, value in fallback.items()}
+
+        self.architecture = architecture
+        self.model = _build_architecture(
+            architecture=architecture,
+            num_classes=num_classes,
+            pretrained=False,
+            legacy_classifier=legacy_classifier,
+        )
         if model_state is not None:
             self.model.load_state_dict(model_state)
-        elif model_path:
-            print(f"Warning: specified model_path {model_path} not found, using random weights")
 
         self.model = self.model.to(self.device)
         self.model.eval()
-        
-        # Image preprocessing
-        self.image_size = 224
-
-    def _determine_output_classes(self, model_state: Dict[str, torch.Tensor] | None) -> int:
-        """Infer the classifier output size from saved weights when available."""
-        if model_state:
-            if "fc.6.weight" in model_state:
-                return int(model_state["fc.6.weight"].shape[0])
-            if "fc.weight" in model_state:
-                return int(model_state["fc.weight"].shape[0])
-        return max(len(self._class_map), sum(len(v) for v in self.disease_classes.values()))
-
-    def _metadata_path(self, model_path: str) -> str:
-        """Return the path for the metadata file paired with a model weights file."""
-        base, _ = os.path.splitext(model_path)
-        return f"{base}.json"
-
-    def _default_class_map(self) -> Dict[int, Tuple[str, str]]:
-        """Build a default class map based on the known disease_classes ordering."""
-        mapping: Dict[int, Tuple[str, str]] = {}
-        idx = 0
-        for crop, diseases in self.disease_classes.items():
-            for disease in diseases.values():
-                mapping[idx] = (crop, disease)
-                idx += 1
-        return mapping
-
-    def _save_metadata(self, model_path: str):
-        """Persist metadata (such as class_map) alongside weights."""
-        meta_path = self._metadata_path(model_path)
-        try:
-            with open(meta_path, "w", encoding="utf-8") as f:
-                json.dump({"class_map": self._class_map}, f, indent=2)
-        except Exception:
-            pass
-
-    def _is_crop_only_model(self) -> bool:
-        """Return True when the loaded model predicts crop labels only."""
-        disease_labels = [disease for _, disease in self._class_map.values() if disease]
-        known_crops = {crop for crop, _ in self._class_map.values() if crop}
-        return not disease_labels and known_crops.issubset(set(self._crop_order))
-
-    def _normalize_crop_hint(self, crop_hint: Optional[str]) -> Optional[str]:
-        """Normalize a crop hint from the client to one of the supported crop names."""
-        if not crop_hint:
-            return None
-
-        normalized = crop_hint.strip().lower()
-        aliases = {
-            "sugarcane": "Sugarcane",
-            "wheat": "Wheat",
-            "rice": "Rice",
-        }
-        return aliases.get(normalized)
+        self.crop_class_indices = _crop_class_indices(self.class_map)
 
     def preprocess_image(self, image_data: bytes) -> torch.Tensor:
-        """Preprocess image for model input"""
-        # Open image
-        image = Image.open(io.BytesIO(image_data)).convert('RGB')
-        
-        # Resize
-        image = image.resize((self.image_size, self.image_size), Image.Resampling.LANCZOS)
-        
-        # Convert to tensor and normalize
-        image_array = np.array(image) / 255.0
-        
-        # ImageNet normalization
-        mean = np.array([0.485, 0.456, 0.406])
-        std = np.array([0.229, 0.224, 0.225])
-        image_array = (image_array - mean) / std
-        
-        # Convert to tensor
-        image_tensor = torch.from_numpy(image_array).permute(2, 0, 1).float()
-        return image_tensor.unsqueeze(0).to(self.device)
+        image = Image.open(io.BytesIO(image_data)).convert("RGB")
+        transform = _build_transforms(train=False)
+        return transform(image).unsqueeze(0).to(self.device)
 
-    def train(self,
-              dataset_dir: str,
-              output_path: str = "model.pth",
-              epochs: int = 5,
-              batch_size: int = 32,
-              learning_rate: float = 1e-4):
-        """Train the model with images in `dataset_dir`.
+    def _masked_probabilities(self, probabilities: torch.Tensor, crop_hint: Optional[str]) -> torch.Tensor:
+        if crop_hint is None or crop_hint not in self.crop_class_indices:
+            return probabilities
 
-        The folder structure should be:
-            dataset_dir/
-                Sugarcane/
-                    Healthy/
-                    Red Rot Disease/
-                    ...
-                Wheat/
-                    Healthy/
-                    ...
-                Rice/
-                    Healthy/
-                    ...
+        mask = torch.zeros_like(probabilities)
+        indices = self.crop_class_indices[crop_hint]
+        mask[indices] = 1.0
+        masked = probabilities * mask
+        total = masked.sum()
+        if float(total.item()) == 0.0:
+            return probabilities
+        return masked / total
 
-        This is a simple training loop using PyTorch's ImageFolder dataset.
-        After training the weights are saved to `output_path`.
+    def _top_predictions(self, probabilities: torch.Tensor, limit: int = 3) -> List[Dict[str, object]]:
+        values, indices = torch.topk(probabilities, k=min(limit, probabilities.numel()))
+        top_predictions = []
+        for value, index in zip(values.tolist(), indices.tolist()):
+            crop, disease = self.class_map.get(index, ("Unknown", "Unknown"))
+            top_predictions.append(
+                {
+                    "class_index": index,
+                    "crop": crop,
+                    "disease": disease,
+                    "confidence": round(value * 100.0, 2),
+                }
+            )
+        return top_predictions
 
-        This method is mainly intended for offline use – you can call it in a
-        separate script (e.g. after downloading the Kaggle dataset) to regenerate
-        the model weights.
-        """
-        import torchvision.transforms as transforms
-        from torchvision.datasets import ImageFolder
-        from torch.utils.data import DataLoader
+    def _crop_probabilities(self, probabilities: torch.Tensor) -> Dict[str, float]:
+        crop_scores: Dict[str, float] = defaultdict(float)
+        for index, score in enumerate(probabilities.tolist()):
+            crop, _ = self.class_map.get(index, ("Unknown", "Unknown"))
+            crop_scores[crop] += score
+        return {crop: round(score * 100.0, 2) for crop, score in sorted(crop_scores.items())}
 
-        # make sure dataset exists
-        if not os.path.isdir(dataset_dir):
-            raise FileNotFoundError(f"Dataset directory not found: {dataset_dir}")
-
-        # create transforms matching preprocessing used for inference
-        transform = transforms.Compose([
-            transforms.Resize((self.image_size, self.image_size)),
-            transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406],
-                                 [0.229, 0.224, 0.225])
-        ])
-
-        dataset = ImageFolder(root=dataset_dir, transform=transform)
-        loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-
-        # build a mapping from dataset index to (crop, disease) by parsing
-        # the class names which should be of the form "Crop/Disease" or "Crop___Disease".
-        self._class_map = {}
-        for idx, cls in enumerate(dataset.classes):
-            if '___' in cls:
-                parts = cls.split('___', 1)
-                crop = parts[0]
-                disease = parts[1] if len(parts) > 1 else ''
-            else:
-                # Handle format like "Rice/Healthy"
-                parts = cls.split('/', 1)
-                crop = parts[0]
-                disease = parts[1] if len(parts) > 1 else ''
-            self._class_map[idx] = (crop, disease)
-
-        # adjust model head to match the number of classes in dataset
-        num_classes = len(dataset.classes)
-        in_features = self.model.fc[0].in_features if isinstance(self.model.fc, nn.Sequential) else self.model.fc.in_features
-        self.model.fc = nn.Sequential(
-            nn.Linear(in_features, 512),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(512, 256),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(256, num_classes)
-        ).to(self.device)
-
-        # use a simple cross-entropy loss and optimizer
-        criterion = nn.CrossEntropyLoss()
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
-
-        self.model.train()
-        for epoch in range(epochs):
-            running_loss = 0.0
-            for inputs, labels in loader:
-                inputs, labels = inputs.to(self.device), labels.to(self.device)
-                optimizer.zero_grad()
-                outputs = self.model(inputs)
-                loss = criterion(outputs, labels)
-                loss.backward()
-                optimizer.step()
-                running_loss += loss.item()
-            avg_loss = running_loss / len(loader)
-            print(f"Epoch {epoch+1}/{epochs}, loss: {avg_loss:.4f}")
-
-        # save trained weights
-        torch.save(self.model.state_dict(), output_path)
-        # also persist metadata (e.g. class mapping) so inference works after restart
-        self._save_metadata(output_path)
-        print(f"Training complete, model saved to {output_path}")
-
-    
-    def detect_crop_type(self, image_data: bytes, debug: bool = False):
-        """Detect crop type from image features.
-
-        Returns a tuple (crop_type, debug_info) when debug=True.
-        """
-        # Using image analysis to detect leaf patterns
-        image = Image.open(io.BytesIO(image_data)).convert('RGB')
-        image_array = np.array(image)
-
-        # Compute basic stats
-        mean_rgb = np.mean(image_array, axis=(0, 1))
-        r, g, b = mean_rgb.tolist()
-
-        # Compute green ratio with simple RGB thresholds (no OpenCV required)
-        if cv2 is not None:
-            hsv = cv2.cvtColor(image_array, cv2.COLOR_RGB2HSV)
-            green_mask = cv2.inRange(hsv, (35, 40, 40), (85, 255, 255))
-            green_ratio = float(np.sum(green_mask)) / (image_array.shape[0] * image_array.shape[1] * 255.0)
-        else:
-            # fallback: count pixels with green sufficiently larger than red/blue
-            green_mask = (image_array[:, :, 1] > image_array[:, :, 0] + 15) & (image_array[:, :, 1] > image_array[:, :, 2] + 15) & (image_array[:, :, 1] > 80)
-            green_ratio = float(np.sum(green_mask)) / (image_array.shape[0] * image_array.shape[1])
-
-        total_pixels = float(image_array.shape[0] * image_array.shape[1])
-        yellow_mask = (
-            (image_array[:, :, 0] > 100) &
-            (image_array[:, :, 1] > 90) &
-            (image_array[:, :, 2] < 140) &
-            (image_array[:, :, 0] >= image_array[:, :, 1] * 0.8)
-        )
-        yellow_ratio = float(np.sum(yellow_mask)) / total_pixels
-
-        # Centroids for RGB average (tuned roughly for the crops)
-        centroids = {
-            "Rice": np.array([50, 150, 50]),
-            "Wheat": np.array([150, 150, 50]),
-            "Sugarcane": np.array([30, 100, 30])
-        }
-
-        # Find closest centroid
-        min_distance = float('inf')
-        closest_crop = "Sugarcane"  # default
-        closest_dist = None
-        for crop, centroid in centroids.items():
-            distance = float(np.linalg.norm(mean_rgb - centroid))
-            if distance < min_distance:
-                min_distance = distance
-                closest_crop = crop
-                closest_dist = distance
-
-        # Refine using simple color rules. The earlier version pushed almost
-        # every green leaf toward rice, which made sugarcane look incorrect.
-        if yellow_ratio > 0.12 or (r > g * 0.85 and b < g * 0.75):
-            detected = "Wheat"
-        elif green_ratio > 0.45 and (r + b) < 40 and g < 125:
-            detected = "Sugarcane"
-        elif green_ratio > 0.45 and (r + b) >= 60:
-            detected = "Rice"
-        else:
-            detected = closest_crop
-
-        debug_info = {
-            "mean_rgb": {
-                "r": float(r),
-                "g": float(g),
-                "b": float(b)
-            },
-            "green_ratio": float(green_ratio),
-            "yellow_ratio": float(yellow_ratio),
-            "centroids": {k: v.tolist() for k, v in centroids.items()},
-            "closest_crop": closest_crop,
-            "closest_distance": float(closest_dist) if closest_dist is not None else None,
-            "detected_crop": detected
-        }
-
-        if debug:
-            return detected, debug_info
-        return detected
-    
-    def _deterministic_choice(self, key: bytes, options: List[str]) -> str:
-        """Pick a deterministic option from a list based on a hash of the input."""
-        if not options:
-            return ""
-        digest = hashlib.sha256(key).digest()
-        idx = int.from_bytes(digest[:4], 'little') % len(options)
-        return options[idx]
-
-    def _deterministic_confidence(self, key: bytes, min_val: float = 70.0, max_val: float = 95.0) -> float:
-        """Pick a deterministic confidence score based on a hash of the input."""
-        digest = hashlib.sha256(key).digest()
-        val = int.from_bytes(digest[4:8], 'little') / 0xFFFFFFFF
-        return min_val + (max_val - min_val) * val
-
-    def predict(self, image_data: bytes, crop_hint: Optional[str] = None) -> Dict:
-        """Predict disease from image
-        Returns disease classification with confidence
-        """
+    def predict(self, image_data: bytes, crop_hint: Optional[str] = None) -> Dict[str, object]:
         try:
-            # Determine crop type from heuristic to generate contextual information.
-            heuristic_crop, debug_info = self.detect_crop_type(image_data, debug=True)
-            user_crop_hint = self._normalize_crop_hint(crop_hint)
-
-            # Use model inference for disease class prediction
+            normalized_hint = _normalize_crop_hint(crop_hint)
             image_tensor = self.preprocess_image(image_data)
+
             with torch.no_grad():
-                outputs = self.model(image_tensor)
-                probs = torch.nn.functional.softmax(outputs, dim=1)
-                top_prob, top_idx = torch.max(probs, dim=1)
-                class_index = int(top_idx.item())
-                confidence = float(top_prob.item() * 100.0)
+                logits = self.model(image_tensor)[0]
+                probabilities = torch.softmax(logits, dim=0)
+                masked_probabilities = self._masked_probabilities(probabilities, normalized_hint)
+                confidence, class_index = torch.max(masked_probabilities, dim=0)
 
-            # Map class index to crop and disease
-            mapped_crop, disease_name = self._class_map.get(class_index, (heuristic_crop, "Unknown Disease"))
-            crop_only_model = self._is_crop_only_model()
+            class_index = int(class_index.item())
+            confidence_value = round(float(confidence.item()) * 100.0, 2)
+            crop_type, disease = self.class_map.get(class_index, ("Unknown", "Unknown"))
+            health_status = "healthy" if disease.lower() == "healthy" else "serious_issue"
+            top_predictions = self._top_predictions(masked_probabilities, limit=3)
+            crop_scores = self._crop_probabilities(probabilities)
 
-            if user_crop_hint:
-                crop_type = user_crop_hint
-                disease_name = "Unknown Disease" if crop_only_model else disease_name
-                crop_resolution = "user_hint"
-            elif crop_only_model:
-                crop_type = heuristic_crop if confidence < 60.0 else (mapped_crop or heuristic_crop)
-                disease_name = "Unknown Disease"
-                crop_resolution = "heuristic" if confidence < 60.0 else "crop_model"
-            else:
-                crop_type = mapped_crop or heuristic_crop
-                crop_resolution = "disease_model"
-                if not disease_name:
-                    disease_name = "Unknown Disease"
-
-            display_disease = "Disease model unavailable" if crop_only_model else disease_name
-
-            # Health status based on disease
-            if disease_name == "Unknown Disease":
-                health_status = "unknown"
-            else:
-                health_status = "healthy" if "Healthy" in disease_name else "serious_issue"
-
-            # Generate recommendations and insights
-            ai_insights = self._generate_insights(crop_type, disease_name, confidence)
-            disease_risks = self._get_disease_risks(crop_type, disease_name)
-            pest_risks = self._get_pest_risks(crop_type)
-            recommendations = self._get_recommendations(crop_type, disease_name)
+            note: Optional[str] = None
+            if confidence_value < 55.0:
+                note = "Confidence is modest. Upload a brighter close-up of a single leaf for a stronger diagnosis."
+            elif normalized_hint:
+                note = f"Crop hint applied: prediction was restricted to {normalized_hint} disease classes."
 
             return {
                 "crop_type": crop_type,
-                "disease": display_disease,
-                "confidence": round(confidence, 2),
+                "disease": disease,
+                "confidence": confidence_value,
                 "health_status": health_status,
-                "ai_insights": ai_insights,
-                "disease_risks": disease_risks,
-                "pest_risks": pest_risks,
-                "recommendations": recommendations,
-                "growth_stage": self._estimate_growth_stage(crop_type),
-                "yield_prediction": self._predict_yield(crop_type, disease_name),
-                "profitability_score": self._calculate_profitability(crop_type, disease_name),
-                "model_capability": "crop_only" if crop_only_model else "crop_and_disease",
-                "prediction_note": (
-                    "This backend currently has only a crop-level model loaded. "
-                    "Disease prediction is not available until a trained Sugarcane/Wheat/Rice disease model is installed."
-                    if crop_only_model else None
-                ),
+                "ai_insights": _generate_insights(crop_type, disease, confidence_value, normalized_hint is not None),
+                "disease_risks": _get_disease_risks(crop_type, disease),
+                "pest_risks": _get_pest_risks(crop_type),
+                "recommendations": _get_recommendations(crop_type, disease, confidence_value),
+                "growth_stage": _estimate_growth_stage(crop_type),
+                "yield_prediction": _predict_yield(crop_type, disease),
+                "profitability_score": _calculate_profitability(crop_type, disease),
+                "model_capability": self.metadata.get("model_capability", DEFAULT_MODEL_CAPABILITY),
+                "prediction_note": note,
                 "debug": {
-                    **debug_info,
-                    "user_crop_hint": user_crop_hint,
-                    "heuristic_crop": heuristic_crop,
-                    "model_crop": mapped_crop,
-                    "crop_resolution": crop_resolution,
-                    "crop_only_model": crop_only_model,
-                    "predicted_class": class_index,
-                    "disease": disease_name,
-                    "model_confidence": round(confidence, 2)
-                }
+                    "architecture": self.architecture,
+                    "normalized_crop_hint": normalized_hint,
+                    "top_predictions": top_predictions,
+                    "crop_probabilities": crop_scores,
+                    "validation_accuracy": self.metadata.get("training_summary", {}).get("validation_accuracy"),
+                },
             }
-        except Exception as e:
-            return {"error": str(e)}
-    
-    def _generate_insights(self, crop_type: str, disease: str, confidence: float) -> List[str]:
-        """Generate AI insights based on detection"""
-        insights = []
-
-        if disease == "Unknown Disease":
-            return [
-                f"Crop pattern looks closest to {crop_type}.",
-                "Disease symptoms could not be classified confidently from the current model.",
-                "Use a close-up, well-lit photo of a single leaf for a better diagnosis."
-            ]
-        
-        if crop_type == "Sugarcane":
-            if "Healthy" in disease:
-                insights = [
-                    "🤖 Yield Prediction: 78-82 tonnes/hectare based on current analysis",
-                    "🤖 Climate Alert: Optimal growing conditions detected",
-                    "🤖 Water Efficiency: Current irrigation schedule is effective",
-                    "🤖 Harvest Readiness: Expected maturity in 12-15 months"
-                ]
-            elif "Red Rot" in disease:
-                insights = [
-                    "🤖 Disease Critical: Red Rot detected—apply fungicide within 2 days",
-                    "🤖 Spread Risk: High in humid conditions—improve drainage",
-                    "🤖 Yield Impact: 25-30% loss possible without intervention",
-                    "🤖 Treatment: Use Carbendazim or Bordeaux mixture immediately"
-                ]
-        
-        elif crop_type == "Wheat":
-            if "Healthy" in disease:
-                insights = [
-                    "🤖 Yield Prediction: 48-52 quintals/hectare expected",
-                    "🤖 Growth Rate: Normal vegetative development detected",
-                    "🤖 Weather Favorable: Conditions optimal for grain filling",
-                    "🤖 Market Outlook: Prices trending upward—good profitability"
-                ]
-            elif "Rust" in disease:
-                insights = [
-                    "🤖 Rust Alert: Leaf/Stem rust detected—spray fungicide",
-                    "🤖 Spread Speed: Rust spreads rapidly in cool, wet weather",
-                    "🤖 Yield Loss: 15-25% reduction if not managed",
-                    "🤖 Treatment: Apply Propiconazole or Hexaconazole spray"
-                ]
-        
-        elif crop_type == "Rice":
-            if "Healthy" in disease:
-                insights = [
-                    "🤖 Yield Prediction: 52-58 quintals/hectare expected",
-                    "🤖 Panicle Development: Excellent progress detected",
-                    "🤖 Water Management: Field conditions optimal",
-                    "🤖 Harvest Window: Estimated 30-35 days to maturity"
-                ]
-            elif "Brown Spot" in disease:
-                insights = [
-                    "🤖 Disease Critical: Brown Spot detected at critical stage",
-                    "🤖 Urgency: Spray fungicide immediately—72-hour window",
-                    "🤖 Yield Impact: 30-40% loss without intervention",
-                    "🤖 Treatment: Apply Zinc + Mancozeb combination urgently"
-                ]
-        
-        return insights if insights else ["🤖 Analysis: Detailed assessment in progress..."]
-    
-    def _get_disease_risks(self, crop_type: str, current_disease: str) -> List[str]:
-        """Get potential disease risks"""
-        risks = {
-            "Sugarcane": ["Red Rot (monitor humidity)", "Mosaic Virus", "Smut Disease", "Leaf Scorch"],
-            "Wheat": ["Powdery Mildew", "Leaf Rust", "Stem Rust", "Septoria Leaf Blotch"],
-            "Rice": ["Brown Spot", "Leaf Blast", "Bacterial Leaf Blight", "Sheath Blight"]
-        }
-        return risks.get(crop_type, [])
-    
-    def _get_pest_risks(self, crop_type: str) -> List[str]:
-        """Get potential pest risks"""
-        pests = {
-            "Sugarcane": ["Sugarcane Borer", "Scale Insects", "Leaf Hoppers"],
-            "Wheat": ["Armyworm", "Aphids", "Grasshoppers"],
-            "Rice": ["Stem Borer", "Leaf Folder", "Brown Plant Hopper"]
-        }
-        return pests.get(crop_type, [])
-    
-    def _get_recommendations(self, crop_type: str, disease: str) -> List[str]:
-        """Get crop-specific recommendations"""
-        if disease == "Unknown Disease":
-            recs = {
-                "Sugarcane": [
-                    "Capture a clearer close-up of one leaf with visible symptoms",
-                    "Inspect the midrib and lower leaves for streaks or rot",
-                    "Record recent irrigation and humidity changes"
-                ],
-                "Wheat": [
-                    "Upload a sharp photo of one affected leaf blade",
-                    "Check for rust pustules, powdery patches, or yellowing",
-                    "Record recent weather and fertilizer changes"
-                ],
-                "Rice": [
-                    "Take a brighter close-up of one affected rice leaf",
-                    "Check for brown spots, blight margins, or blast lesions",
-                    "Record standing water level and recent rainfall"
-                ]
-            }
-        elif "Healthy" in disease:
-            recs = {
-                "Sugarcane": [
-                    "Maintain drip irrigation schedule",
-                    "Monitor for Red Rot during high humidity",
-                    "Apply balanced NPK in splits",
-                    "Plan for harvest in 12-15 months"
-                ],
-                "Wheat": [
-                    "Continue current fertilizer schedule",
-                    "Monitor for pest activity",
-                    "Ensure proper drainage",
-                    "Plan harvest at grain maturity"
-                ],
-                "Rice": [
-                    "Maintain standing water level",
-                    "Apply final nitrogen dose",
-                    "Prepare for harvest",
-                    "Monitor for late-stage pests"
-                ]
-            }
-        else:
-            recs = {
-                "Sugarcane": ["Apply fungicide immediately", "Improve field drainage", "Remove infected plants"],
-                "Wheat": ["Spray rust control fungicide", "Maintain field hygiene", "Monitor closely"],
-                "Rice": ["Apply zinc-Mancozeb spray", "Reduce water level", "Increase air circulation"]
-            }
-        
-        return recs.get(crop_type, [])
-    
-    def _estimate_growth_stage(self, crop_type: str) -> str:
-        """Estimate growth stage"""
-        stages = {
-            "Sugarcane": "Vegetative Stage",
-            "Wheat": "Grain Filling Stage",
-            "Rice": "Panicle Initiation Stage"
-        }
-        return stages.get(crop_type, "Mid-Growth")
-    
-    def _predict_yield(self, crop_type: str, disease: str) -> str:
-        """Predict yield based on disease"""
-        if disease == "Unknown Disease":
-            return "Needs confirmed disease diagnosis"
-        if "Healthy" in disease:
-            yields = {
-                "Sugarcane": "78-82 tonnes/hectare",
-                "Wheat": "48-52 quintals/hectare",
-                "Rice": "52-58 quintals/hectare"
-            }
-        else:
-            yields = {
-                "Sugarcane": "55-65 tonnes/hectare",
-                "Wheat": "35-42 quintals/hectare",
-                "Rice": "35-42 quintals/hectare"
-            }
-        return yields.get(crop_type, "35-45 units/hectare")
-    
-    def _calculate_profitability(self, crop_type: str, disease: str) -> int:
-        """Calculate profitability score"""
-        base_scores = {
-            "Sugarcane": 85,
-            "Wheat": 78,
-            "Rice": 82
-        }
-        
-        base = base_scores.get(crop_type, 70)
-
-        if disease == "Unknown Disease":
-            return max(base - 5, 20)
-        
-        # Reduce score based on disease severity
-        if "Healthy" not in disease:
-            base -= 20 if "serious" not in disease else 40
-        
-        return max(base, 20)
+        except Exception as exc:  # pragma: no cover - surfaced through API
+            return {"error": str(exc)}
 
 
-# Simple OpenCV import fallback
-try:
-    import cv2
-except ImportError:
-    cv2 = None
+def _generate_insights(crop_type: str, disease: str, confidence: float, hint_used: bool) -> List[str]:
+    insights = [
+        f"Model classified the leaf as {crop_type} - {disease}.",
+        f"Prediction confidence: {confidence:.2f}%.",
+    ]
+    if disease.lower() == "healthy":
+        insights.append("No supported disease class scored higher than the healthy class for this image.")
+    else:
+        insights.append(f"Visible lesion pattern is closest to {disease} within the supported {crop_type.lower()} classes.")
+
+    if hint_used:
+        insights.append("Crop hint was used to restrict the classifier to the selected crop classes.")
+    else:
+        insights.append("If you already know the crop, selecting it in the UI usually improves specificity.")
+    return insights
+
+
+def _get_disease_risks(crop_type: str, current_disease: str) -> List[str]:
+    risks = {
+        "Sugarcane": ["Mosaic", "Red Rot", "Rust", "Yellow Leaf Disease"],
+        "Wheat": ["Brown Rust", "Powdery Mildew", "Septoria", "Yellow Rust"],
+        "Rice": ["Bacterial Leaf Blight", "Brown Spot", "Leaf Blast"],
+    }
+    return [risk for risk in risks.get(crop_type, []) if risk != current_disease]
+
+
+def _get_pest_risks(crop_type: str) -> List[str]:
+    pests = {
+        "Sugarcane": ["Early shoot borer", "Pyrilla", "Scale insects"],
+        "Wheat": ["Aphids", "Armyworm", "Termites"],
+        "Rice": ["Stem borer", "Leaf folder", "Brown planthopper"],
+    }
+    return pests.get(crop_type, [])
+
+
+def _get_recommendations(crop_type: str, disease: str, confidence: float) -> List[str]:
+    if disease.lower() == "healthy":
+        return {
+            "Sugarcane": [
+                "Continue field scouting once or twice per week.",
+                "Keep drainage and ratoon sanitation in good condition.",
+                "Capture a fresh image if yellow streaking or red lesions appear later.",
+            ],
+            "Wheat": [
+                "Keep monitoring the canopy for rust pustules or powdery growth.",
+                "Maintain balanced nitrogen use to avoid excessive disease pressure.",
+                "Repeat scanning after major weather changes or irrigation events.",
+            ],
+            "Rice": [
+                "Continue routine monitoring for fresh lesions near leaf tips and margins.",
+                "Maintain stable water management and avoid unnecessary canopy stress.",
+                "Rescan if spotting or blast-like lesions begin spreading.",
+            ],
+        }.get(crop_type, ["Continue normal scouting and upload a new image if symptoms change."])
+
+    recommendations = {
+        ("Sugarcane", "Mosaic"): [
+            "Rogue heavily infected clumps to reduce spread.",
+            "Use clean seed material for the next planting cycle.",
+            "Control vector insects and avoid sharing infected setts.",
+        ],
+        ("Sugarcane", "Red Rot"): [
+            "Remove badly affected canes and destroy infected residue.",
+            "Improve drainage and avoid water stagnation in the field.",
+            "Consult a local agronomist for a fungicide plan suitable to your region.",
+        ],
+        ("Sugarcane", "Rust"): [
+            "Monitor disease spread across the upper leaves during humid periods.",
+            "Improve airflow by reducing excessive weed pressure.",
+            "Seek local fungicide guidance if lesions are rapidly expanding.",
+        ],
+        ("Sugarcane", "Yellow Leaf Disease"): [
+            "Inspect neighbouring plants for yellowing along the midrib.",
+            "Use healthy planting material and remove chronically affected stools.",
+            "Track symptom progression over the next 5-7 days with new images.",
+        ],
+        ("Wheat", "Brown Rust"): [
+            "Scout nearby leaves for orange-brown pustules and rapid spread.",
+            "Discuss a rust-active fungicide with a local extension advisor if incidence is rising.",
+            "Avoid delaying action when cool, humid weather is forecast.",
+        ],
+        ("Wheat", "Powdery Mildew"): [
+            "Inspect lower leaves and dense canopy areas for fresh powdery growth.",
+            "Improve field airflow where possible and avoid excess nitrogen.",
+            "Rescan after 3-5 days to confirm whether lesions are expanding.",
+        ],
+        ("Wheat", "Septoria"): [
+            "Check multiple leaves for necrotic blotches and dark pycnidia.",
+            "Prioritize scouting after rain or prolonged leaf wetness.",
+            "Discuss a septoria-targeted spray window if infection is active in the canopy.",
+        ],
+        ("Wheat", "Yellow Rust"): [
+            "Inspect the field quickly for yellow linear pustule stripes.",
+            "Treat early if disease is spreading through upper leaves.",
+            "Repeat imaging on a second leaf to confirm consistency.",
+        ],
+        ("Rice", "Bacterial Leaf Blight"): [
+            "Inspect leaf margins and tips for water-soaked or yellowing streaks.",
+            "Avoid excessive nitrogen and check recent storm or wind injury.",
+            "Discuss local management steps quickly if symptoms are spreading field-wide.",
+        ],
+        ("Rice", "Brown Spot"): [
+            "Check additional leaves for round to oval brown lesions.",
+            "Review nutrient balance, especially potassium and silicon availability.",
+            "Capture another image from a different plant to confirm consistency.",
+        ],
+        ("Rice", "Leaf Blast"): [
+            "Inspect for spindle-shaped lesions on multiple leaves.",
+            "Reduce avoidable canopy stress and track spread after humid nights.",
+            "Escalate quickly if blast lesions are moving into upper leaves.",
+        ],
+    }
+
+    result = recommendations.get((crop_type, disease), ["Capture another close-up and review symptoms with a local agronomist."])
+    if confidence < 60.0:
+        result = list(result) + ["Confidence is moderate, so verify with one additional image from a separate plant."]
+    return result
+
+
+def _estimate_growth_stage(crop_type: str) -> str:
+    return {
+        "Sugarcane": "Leaf-stage scan only; growth stage cannot be estimated reliably from one leaf photo.",
+        "Wheat": "Leaf-stage scan only; growth stage cannot be estimated reliably from one leaf photo.",
+        "Rice": "Leaf-stage scan only; growth stage cannot be estimated reliably from one leaf photo.",
+    }.get(crop_type, "Leaf-stage scan only.")
+
+
+def _predict_yield(crop_type: str, disease: str) -> str:
+    if disease.lower() == "healthy":
+        return "No major supported disease detected in this image; yield impact appears limited from this scan alone."
+    return "Potential yield impact depends on spread and timing; confirm with broader field scouting."
+
+
+def _calculate_profitability(crop_type: str, disease: str) -> int:
+    base = {"Sugarcane": 82, "Wheat": 78, "Rice": 80}.get(crop_type, 75)
+    if disease.lower() == "healthy":
+        return base
+    return max(base - 22, 25)

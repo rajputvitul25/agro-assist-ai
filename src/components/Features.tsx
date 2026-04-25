@@ -1,106 +1,117 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { 
-  Megaphone, 
-  Target, 
-  Calendar, 
-  Camera, 
-  Bug, 
-  TrendingUp,
-  MapPin,
-  CloudRain
+import { useNavigate } from "react-router-dom";
+import { Card } from "@/components/ui/card";
+import {
+  Calendar,
+  Camera,
+  Megaphone,
+  MessageCircle,
+  Mic,
+  Target,
 } from "lucide-react";
-import mobileApp from "@/assets/mobile-app.jpg";
-import aiAnalysis from "@/assets/ai-analysis.jpg";
+
+const features = [
+  {
+    icon: Target,
+    title: "Crop Recommendation",
+    description: "Compare soil and climate inputs in one focused flow.",
+    route: "/crop-recommendation",
+    action: "Open tool",
+    span: "lg:col-span-5",
+    surface:
+      "bg-[linear-gradient(135deg,rgba(255,255,255,0.96)_0%,rgba(232,246,233,0.96)_100%)]",
+  },
+  {
+    icon: Camera,
+    title: "Crop Health Scan",
+    description: "Upload a leaf image and check the result quickly.",
+    route: "/crop-monitoring",
+    action: "Open tool",
+    span: "lg:col-span-7",
+    surface:
+      "bg-[linear-gradient(135deg,rgba(255,255,255,0.96)_0%,rgba(255,243,230,0.96)_100%)]",
+  },
+  {
+    icon: Calendar,
+    title: "Sowing Calendar",
+    description: "Find timing by season and state without extra searching.",
+    route: "/sowing-calendar",
+    action: "Open tool",
+    span: "lg:col-span-4",
+    surface:
+      "bg-[linear-gradient(135deg,rgba(255,255,255,0.96)_0%,rgba(255,249,227,0.96)_100%)]",
+  },
+  {
+    icon: Megaphone,
+    title: "Government Updates",
+    description: "See important updates in a cleaner, easier list.",
+    route: "/government-updates",
+    action: "Open tool",
+    span: "lg:col-span-4",
+    surface:
+      "bg-[linear-gradient(135deg,rgba(255,255,255,0.96)_0%,rgba(232,243,255,0.96)_100%)]",
+  },
+  {
+    icon: MessageCircle,
+    title: "Smart Chatbot",
+    description: "Get help across the app without leaving the page.",
+    action: "Always available",
+    span: "lg:col-span-4",
+    surface:
+      "bg-[linear-gradient(135deg,rgba(255,255,255,0.96)_0%,rgba(232,255,247,0.96)_100%)]",
+  },
+  {
+    icon: Mic,
+    title: "Hindi + English Voice",
+    description: "Speak, type, or listen with the same chatbot panel.",
+    action: "Inside chatbot",
+    span: "lg:col-span-12",
+    surface:
+      "bg-[linear-gradient(135deg,rgba(255,255,255,0.98)_0%,rgba(235,246,255,0.98)_50%,rgba(235,245,232,0.98)_100%)]",
+  },
+];
 
 const Features = () => {
-  const features = [
-    {
-      icon: Megaphone,
-      title: "Government Updates",
-      description: "Real-time updates on government schemes, subsidies, and agricultural policies from official data sources.",
-      color: "bg-blue-500/10 text-blue-600"
-    },
-    {
-      icon: Target,
-      title: "Crop Recommendation",
-      description: "AI-powered suggestions for optimal crops based on soil parameters, climate, and regional conditions.",
-      color: "bg-green-500/10 text-green-600"
-    },
-    {
-      icon: Calendar,
-      title: "Sowing Calendar",
-      description: "Location-specific sowing schedules and crop calendars based on weather patterns and seasonal data.",
-      color: "bg-purple-500/10 text-purple-600"
-    },
-    {
-      icon: Camera,
-      title: "Crop Health Monitoring",
-      description: "Upload crop images for AI-powered health assessment and growth stage analysis.",
-      color: "bg-orange-500/10 text-orange-600"
-    },
-    {
-      icon: Bug,
-      title: "Pest & Disease Detection",
-      description: "Instant identification of crop diseases and pests with treatment recommendations.",
-      color: "bg-red-500/10 text-red-600"
-    },
-    {
-      icon: TrendingUp,
-      title: "Decision Support System",
-      description: "Comprehensive insights combining all data sources for actionable farming decisions.",
-      color: "bg-indigo-500/10 text-indigo-600"
-    },
-    {
-      icon: MapPin,
-      title: "Location-Based Advice",
-      description: "Hyper-local recommendations tailored to your specific geographic region and conditions.",
-      color: "bg-teal-500/10 text-teal-600"
-    },
-    {
-      icon: CloudRain,
-      title: "Weather Integration",
-      description: "Real-time weather data from IMD and OpenWeatherMap for precise farming guidance.",
-      color: "bg-cyan-500/10 text-cyan-600"
-    }
-  ];
+  const navigate = useNavigate();
 
   return (
-    <section id="features" className="py-20 bg-background relative overflow-hidden">
-      {/* Background decoration */}
-      <div className="absolute top-20 right-10 opacity-10">
-        <img src={mobileApp} alt="" className="w-64 h-64 object-cover rounded-full animate-float" />
-      </div>
-      <div className="absolute bottom-20 left-10 opacity-10">
-        <img src={aiAnalysis} alt="" className="w-48 h-48 object-cover rounded-full animate-float" style={{animationDelay: '1s'}} />
-      </div>
-      
-      <div className="container mx-auto px-4 relative z-10">
-        <div className="text-center mb-16 animate-fade-in">
-          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4 animate-slide-up">
-            Comprehensive Agricultural Solutions
-          </h2>
-          <p className="text-xl text-muted-foreground max-w-3xl mx-auto animate-slide-up" style={{animationDelay: '0.2s'}}>
-            Our platform integrates cutting-edge AI technology with agricultural expertise to provide 
-            farmers with everything they need for successful crop management.
+    <section id="features" className="relative py-16 md:py-20">
+      <div className="container mx-auto px-4">
+        <div className="mx-auto mb-12 max-w-3xl text-center">
+          <h2 className="text-3xl font-bold text-foreground md:text-4xl">Everything in one place</h2>
+          <p className="mt-4 text-lg text-muted-foreground">
+            A fuller dashboard feel, with each tool easy to spot and open.
           </p>
         </div>
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {features.map((feature, index) => (
-            <Card 
-              key={index} 
-              className="hover:shadow-lg transition-all duration-500 border-2 hover:border-primary/20 hover:scale-105 animate-slide-up group"
-              style={{animationDelay: `${0.1 * index}s`}}
+        <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-12">
+          {features.map((feature) => (
+            <Card
+              key={feature.title}
+              onClick={() => {
+                if (feature.route) {
+                  navigate(feature.route);
+                }
+              }}
+              className={`group relative overflow-hidden rounded-[30px] border border-white/80 p-0 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl ${feature.span} ${feature.route ? "cursor-pointer" : ""} ${feature.surface}`}
             >
-              <CardHeader className="text-center pb-4">
-                <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${feature.color} group-hover:scale-110 transition-transform duration-300`}>
-                  <feature.icon className="h-8 w-8" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(61,122,55,0.12),transparent_35%)] opacity-70" />
+              <div className="relative flex h-full min-h-[220px] flex-col justify-between p-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="rounded-2xl bg-white/80 p-3 text-primary shadow-sm">
+                    <feature.icon className="h-6 w-6" />
+                  </div>
+                  <div className="rounded-full border border-primary/10 bg-white/70 px-3 py-1 text-xs font-medium text-primary">
+                    {feature.action}
+                  </div>
                 </div>
-                <CardTitle className="text-lg">{feature.title}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground text-center group-hover:text-foreground transition-colors duration-300">{feature.description}</p>
-              </CardContent>
+
+                <div className="space-y-3">
+                  <h3 className="text-2xl font-semibold text-foreground">{feature.title}</h3>
+                  <p className="max-w-xl text-base leading-7 text-muted-foreground">
+                    {feature.description}
+                  </p>
+                </div>
+              </div>
             </Card>
           ))}
         </div>

@@ -12,6 +12,7 @@ import CropRecommendation from "./pages/CropRecommendation";
 import CropMonitoring from "./pages/CropMonitoring";
 import GovernmentUpdates from "./pages/GovernmentUpdates";
 import SowingCalendar from "./pages/SowingCalendar";
+import AdminDashboard from "./pages/AdminDashboard";
 import { Chatbot } from "@/components/Chatbot";
 
 const queryClient = new QueryClient();
@@ -65,11 +66,19 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute>
+                  <AdminDashboard />
+                </ProtectedRoute>
+              }
+            />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
+          <Chatbot />
         </BrowserRouter>
-        <Chatbot />
       </TooltipProvider>
     </AuthProvider>
   </QueryClientProvider>

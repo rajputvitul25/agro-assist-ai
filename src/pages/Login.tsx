@@ -87,7 +87,7 @@ const Login = () => {
       const success = await login(values.email, values.password);
       if (success) {
         toast.success("Login successful! Welcome back.");
-        // Don't navigate here - let useEffect handle it when isAuthenticated changes
+        navigate("/", { replace: true });
         setIsSubmitting(false);
       } else {
         toast.error("Invalid email or password. Please try again.");
@@ -352,6 +352,17 @@ const Login = () => {
               <p className="text-xs text-muted-foreground">
                 Password: demo123
               </p>
+              <div className="mt-3 pt-3 border-t border-border">
+                <p className="text-xs font-medium text-primary mb-1">
+                  Admin Credentials:
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Email: admin@farmassist.com
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Password: admin123
+                </p>
+              </div>
             </div>
           )}
         </div>
